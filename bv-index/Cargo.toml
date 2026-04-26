@@ -1,0 +1,11 @@
+[package]
+name = "bv-index"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bv-core = { version = "0.1.0", path = "../bv-core" }
+semver = { version = "1.0.28", features = ["serde"] }
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.18"

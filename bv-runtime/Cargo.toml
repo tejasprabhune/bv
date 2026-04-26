@@ -1,0 +1,10 @@
+[package]
+name = "bv-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bv-core = { version = "0.1.0", path = "../bv-core" }
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.18"
