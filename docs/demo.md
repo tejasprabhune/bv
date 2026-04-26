@@ -5,7 +5,7 @@ A step-by-step script for a recorded demo. Total target: under 5 minutes.
 ## Prerequisites
 
 - macOS or Linux with Docker Desktop (or Docker Engine) running
-- `bv` installed (`cargo install bio-bv` or from a release binary)
+- `bv` installed (`cargo install biov` or from a release binary)
 - A terminal with reasonable font size for screen recording
 
 ## Part 1: Environment check (30 s)
@@ -40,10 +40,17 @@ Expected output (trimmed):
 
 **Talking points:** `bv doctor` is the first thing to run on a new machine. Shows Docker is up, hardware is fine, and the project is clean. Like `uv run --dry-run` but for the whole environment.
 
-## Part 2: Add a fast tool (45 s)
+## Part 2: Add a fast tool and run a real analysis (90 s)
+
+`bv run` mounts your project directory as `/workspace` inside the container,
+so any file you put in the folder is accessible at `/workspace/<filename>`.
 
 ```sh
 mkdir demo-project && cd demo-project
+
+# Download a sample protein sequence (human p53, ~400 aa)
+curl -sL "https://rest.uniprot.org/uniprotkb/P04637.fasta" -o p53.fasta
+
 bv add blast
 ```
 
@@ -56,17 +63,23 @@ Expected:
 ```
 
 ```sh
-bv run blast -- blastn -version
+# Build a local BLAST database
+bv run blast -- makeblastdb \
+    -in /workspace/p53.fasta \
+    -dbtype prot \
+    -out /workspace/p53_db
+
+# Search p53 against that database
+bv run blast -- blastp \
+    -query /workspace/p53.fasta \
+    -db /workspace/p53_db \
+    -out /workspace/results.txt \
+    -outfmt 6
+
+cat results.txt
 ```
 
-Expected:
-
-```
-blastn: 2.15.0+
- Package: blast 2.15.0, build ...
-```
-
-**Talking points:** `bv add` pulls from the registry, locks to a digest, writes `bv.toml` and `bv.lock`. `bv run` uses the pinned digest, not the tag, so it is always the same binary.
+**Talking points:** `bv add` pulls from the registry, locks to a digest, writes `bv.toml` and `bv.lock`. `bv run` mounts `$PWD` as `/workspace`; files you put in the project dir are immediately available inside the container without any Docker flags.
 
 ## Part 3: Add multiple tools in parallel (30 s)
 
@@ -79,9 +92,9 @@ Expected (order may vary, pulls happen concurrently):
 ```
   Updating index  done
   Pulling  hmmer@3.3.2
-  Pulling  mmseqs2@14.7564.0
+  Pulling  mmseqs2@17.0.0
   Added    hmmer 3.3.2   ...  120 MB
-  Added    mmseqs2 14.7564.0  ...  500 MB
+  Added    mmseqs2 17.0.0  ...  500 MB
 ```
 
 **Talking points:** Pulls are concurrent (tokio + semaphore, max 3). You don't wait for one image before the next starts.

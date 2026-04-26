@@ -47,21 +47,50 @@ bv list
 bv sync
 ```
 
-### Example: Setting up a protein analysis project
+### Example: protein sequence search from scratch
+
+`bv run` mounts your current directory as `/workspace` inside the container.
+Any file you put in the project folder is accessible at `/workspace/<filename>`.
 
 ```sh
 mkdir protein-project && cd protein-project
 
-# Add the tools you need
-bv add blast hmmer mmseqs2
+# Download a sample sequence (human p53 tumor suppressor, ~400 aa)
+curl -sL "https://rest.uniprot.org/uniprotkb/P04637.fasta" -o p53.fasta
 
-# Run a sequence search
-bv run hmmer -- hmmsearch --cpu 4 \
-    /workspace/profiles/kinase.hmm \
-    /workspace/data/sequences.fasta \
-    > /workspace/results/hits.txt
+# Add BLAST
+bv add blast
 
-# Commit the project files so collaborators can reproduce
+# Build a local BLAST database from the sequence
+bv run blast -- makeblastdb \
+    -in /workspace/p53.fasta \
+    -dbtype prot \
+    -out /workspace/p53_db
+
+# Search p53 against that database
+bv run blast -- blastp \
+    -query /workspace/p53.fasta \
+    -db /workspace/p53_db \
+    -out /workspace/results.txt \
+    -outfmt 6
+
+cat results.txt
+```
+
+Your project directory now looks like:
+
+```
+protein-project/
+  bv.toml        # declares blast
+  bv.lock        # pinned image digest
+  p53.fasta      # your input
+  p53_db.*       # generated database files
+  results.txt    # output
+```
+
+Commit the project files so collaborators can reproduce the exact environment:
+
+```sh
 git add bv.toml bv.lock
 git commit -m "pin analysis environment"
 ```
@@ -70,8 +99,12 @@ A collaborator on a different machine:
 
 ```sh
 git clone <your-repo> && cd protein-project
-bv sync                         # pulls pinned images by digest
-bv run hmmer -- hmmsearch ...   # identical results
+bv sync                  # pulls the pinned blast image by digest
+bv run blast -- blastp \ # identical binary, identical results
+    -query /workspace/p53.fasta \
+    -db /workspace/p53_db \
+    -out /workspace/results.txt \
+    -outfmt 6
 ```
 
 ---

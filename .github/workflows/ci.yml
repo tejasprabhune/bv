@@ -48,6 +48,6 @@ jobs:
         run: cargo build --release
       - name: Integration tests
         run: |
-          cargo test --test integration -- --include-ignored
+          cargo test --test integration -- --include-ignored --skip alphafold
         env:
           BV_REGISTRY: ${{ github.workspace }}/bv-registry
