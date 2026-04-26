@@ -1,19 +1,22 @@
 use std::path::PathBuf;
 
-use directories::ProjectDirs;
-
 /// On-disk layout for bv's local cache.
 pub struct CacheLayout {
     root: PathBuf,
 }
 
 impl CacheLayout {
-    /// Resolve the cache root using platform conventions.
-    /// Falls back to `~/.cache/bv` if XDG/platform dirs are unavailable.
+    /// Resolve the cache root.
+    ///
+    /// Priority:
+    /// 1. `BV_CACHE_DIR` env var (used by tests and CI for isolation)
+    /// 2. `$XDG_CACHE_HOME/bv` if `XDG_CACHE_HOME` is set
+    /// 3. `~/.cache/bv` (consistent across Linux and macOS)
     pub fn new() -> Self {
-        let root = ProjectDirs::from("io", "bv", "bv")
-            .map(|d| d.cache_dir().to_path_buf())
-            .unwrap_or_else(|| dirs_fallback().join("bv"));
+        if let Ok(dir) = std::env::var("BV_CACHE_DIR") {
+            return Self::with_root(PathBuf::from(dir));
+        }
+        let root = xdg_cache_home().join("bv");
         Self { root }
     }
 
@@ -61,10 +64,13 @@ impl Default for CacheLayout {
     }
 }
 
-fn dirs_fallback() -> PathBuf {
-    dirs_sys_home().unwrap_or_else(|| PathBuf::from("."))
-}
-
-fn dirs_sys_home() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+fn xdg_cache_home() -> PathBuf {
+    if let Ok(dir) = std::env::var("XDG_CACHE_HOME") {
+        return PathBuf::from(dir);
+    }
+    // Fall back to ~/.cache on all platforms.
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    home.join(".cache")
 }
