@@ -29,14 +29,12 @@ pub fn run() -> anyhow::Result<()> {
         }
         Err(e) => {
             kv_err("docker", "cannot connect to daemon");
-            eprintln!(
-                "    {:KEY_W$} {e}",
-                ""
-            );
+            eprintln!("    {:KEY_W$} {e}", "");
             eprintln!(
                 "    {:KEY_W$} {} {}",
                 "",
-                "is Docker Desktop running? try".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
+                "is Docker Desktop running? try"
+                    .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
                 "open -a Docker".if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
             );
             blocking_issues += 1;
@@ -59,7 +57,10 @@ pub fn run() -> anyhow::Result<()> {
                 .as_ref()
                 .map(|v| format!("  CUDA {v}"))
                 .unwrap_or_default();
-            kv("gpu", &format!("{} ({:.0} GB VRAM{})", gpu.name, vram_gb, cuda));
+            kv(
+                "gpu",
+                &format!("{} ({:.0} GB VRAM{})", gpu.name, vram_gb, cuda),
+            );
         }
     }
 
@@ -90,7 +91,11 @@ pub fn run() -> anyhow::Result<()> {
 
     let mut index_count = 0;
     if index_parent.exists() {
-        for entry in std::fs::read_dir(index_parent).into_iter().flatten().flatten() {
+        for entry in std::fs::read_dir(index_parent)
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
             if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 let name = entry.file_name().to_string_lossy().to_string();
                 let path = entry.path();
@@ -104,6 +109,38 @@ pub fn run() -> anyhow::Result<()> {
         kv_dim("indexes", "none cloned yet; run `bv add <tool>` first");
     }
 
+    section("Data");
+    let data_root = cache.root().join("data");
+    if data_root.exists() {
+        let mut dataset_count = 0usize;
+        let mut dataset_size = 0u64;
+        if let Ok(entries) = std::fs::read_dir(&data_root) {
+            for id_entry in entries.flatten() {
+                if !id_entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                    continue;
+                }
+                if let Ok(ver_entries) = std::fs::read_dir(id_entry.path()) {
+                    for ver_entry in ver_entries.flatten() {
+                        if ver_entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                            dataset_count += 1;
+                            dataset_size += dir_size_bytes(&ver_entry.path());
+                        }
+                    }
+                }
+            }
+        }
+        if dataset_count == 0 {
+            kv_dim("datasets", "none downloaded yet");
+        } else {
+            kv(
+                "datasets",
+                &format!("{}  {}", dataset_count, format_size(dataset_size)),
+            );
+        }
+    } else {
+        kv_dim("datasets", "none downloaded yet");
+    }
+
     section("Project");
     let bv_toml_path = cwd.join("bv.toml");
     let bv_lock_path = cwd.join("bv.lock");
@@ -113,7 +150,10 @@ pub fn run() -> anyhow::Result<()> {
         let n = bv_core::project::BvToml::from_path(&bv_toml_path)
             .map(|t| t.tools.len())
             .unwrap_or(0);
-        kv("bv.toml", &format!("{} tool{} declared", n, if n == 1 { "" } else { "s" }));
+        kv(
+            "bv.toml",
+            &format!("{} tool{} declared", n, if n == 1 { "" } else { "s" }),
+        );
     } else {
         kv_dim("bv.toml", "not found in current directory");
     }
@@ -123,7 +163,9 @@ pub fn run() -> anyhow::Result<()> {
         let tools: Vec<_> = {
             let mut v: Vec<_> = lockfile.tools.values().collect();
             v.sort_by(|a, b| a.tool_id.cmp(&b.tool_id));
-            v.iter().map(|e| format!("{} {}", e.tool_id, e.version)).collect()
+            v.iter()
+                .map(|e| format!("{} {}", e.tool_id, e.version))
+                .collect()
         };
         kv("bv.lock", &tools.join(", "));
     } else {
@@ -188,7 +230,11 @@ fn dir_size_bytes(path: &Path) -> u64 {
         .flatten()
         .map(|e| {
             let p = e.path();
-            if p.is_dir() { dir_size_bytes(&p) } else { e.metadata().map(|m| m.len()).unwrap_or(0) }
+            if p.is_dir() {
+                dir_size_bytes(&p)
+            } else {
+                e.metadata().map(|m| m.len()).unwrap_or(0)
+            }
         })
         .sum()
 }
@@ -203,11 +249,5 @@ fn count_subdirs(path: &Path) -> usize {
 }
 
 fn git_remote_url(repo_path: &Path) -> Option<String> {
-    let out = std::process::Command::new("git")
-        .args(["-C", &repo_path.to_string_lossy(), "remote", "get-url", "origin"])
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    crate::registry::git_remote_url(repo_path)
 }

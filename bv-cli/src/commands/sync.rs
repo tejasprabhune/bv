@@ -18,9 +18,7 @@ pub async fn run(frozen: bool, registry_flag: Option<&str>) -> anyhow::Result<()
     let bv_lock_path = cwd.join("bv.lock");
 
     if !bv_lock_path.exists() {
-        anyhow::bail!(
-            "no bv.lock found\n  run `bv add <tool>` or `bv lock` first"
-        );
+        anyhow::bail!("no bv.lock found\n  run `bv add <tool>` or `bv lock` first");
     }
 
     let lockfile = BvLock::from_path(&bv_lock_path).context("failed to read bv.lock")?;
@@ -64,8 +62,12 @@ pub async fn run(frozen: bool, registry_flag: Option<&str>) -> anyhow::Result<()
             eprintln!(
                 "  {} {} {}",
                 "Present".if_supports_color(Stream::Stderr, |t| t.green().to_string()),
-                entry.tool_id.if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
-                entry.version.if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
+                entry
+                    .tool_id
+                    .if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
+                entry
+                    .version
+                    .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
             );
             continue;
         }
@@ -81,8 +83,12 @@ pub async fn run(frozen: bool, registry_flag: Option<&str>) -> anyhow::Result<()
         eprintln!(
             "  {} {} {}",
             "Pulling".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string()),
-            entry.tool_id.if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
-            oci_ref.docker_arg().if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
+            entry
+                .tool_id
+                .if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
+            oci_ref
+                .docker_arg()
+                .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
         );
 
         let reporter = CliProgressReporter::for_multi(&mp);
@@ -98,8 +104,11 @@ pub async fn run(frozen: bool, registry_flag: Option<&str>) -> anyhow::Result<()
                 } else {
                     eprintln!(
                         "  {} {} {}  {}",
-                        "Synced".if_supports_color(Stream::Stderr, |t| t.green().bold().to_string()),
-                        entry.tool_id.if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
+                        "Synced"
+                            .if_supports_color(Stream::Stderr, |t| t.green().bold().to_string()),
+                        entry
+                            .tool_id
+                            .if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
                         entry.version,
                         short_digest(&entry.image_digest)
                             .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
@@ -165,15 +174,13 @@ fn check_drift(
     lockfile: &bv_core::lockfile::Lockfile,
     registry_flag: Option<&str>,
 ) -> Option<Vec<String>> {
-    let registry_url = registry_flag
-        .map(|s| s.to_string())
-        .or_else(|| std::env::var("BV_REGISTRY").ok())?;
+    let registry_url = crate::registry::resolve_registry_url(registry_flag, None);
 
     let cache = bv_core::cache::CacheLayout::new();
-    let index = bv_index::GitIndex::new(&registry_url, cache.index_dir("default"));
+    let index = crate::registry::open_index(&registry_url, &cache);
 
     // Suppress refresh errors; drift detection is best-effort.
-    index.refresh().ok()?;
+    index.refresh_if_stale(crate::registry::STALE_TTL).ok()?;
 
     let mut warnings = Vec::new();
     for (tool_id, entry) in &lockfile.tools {

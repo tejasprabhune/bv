@@ -1,12 +1,9 @@
-use std::io::Write as _;
-
 use anyhow::Context;
 use indicatif::MultiProgress;
 use owo_colors::{OwoColorize, Stream};
 
 use bv_core::cache::CacheLayout;
 use bv_core::project::{BvLock, BvToml};
-use bv_index::{GitIndex, IndexBackend as _};
 
 use crate::ops;
 
@@ -26,41 +23,22 @@ pub async fn run(check: bool, registry_flag: Option<&str>) -> anyhow::Result<()>
         .transpose()
         .context("failed to read bv.lock")?;
 
-    let registry_url: String = registry_flag
-        .map(|s| s.to_string())
-        .or_else(|| std::env::var("BV_REGISTRY").ok())
-        .or_else(|| bv_toml.registry.as_ref().map(|r| r.url.clone()))
-        .context(
-            "no registry configured\n  \
-             set BV_REGISTRY, pass --registry <url>, \
-             or add [registry] url = \"...\" to bv.toml",
-        )?;
-
+    let registry_url = crate::registry::resolve_registry_url(registry_flag, Some(&bv_toml));
     let cache = CacheLayout::new();
-    let index = GitIndex::new(&registry_url, cache.index_dir("default"));
+    let index = crate::registry::open_index(&registry_url, &cache);
 
-    eprint!(
-        "  {} index",
-        "Updating".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string())
-    );
-    std::io::stderr().flush().ok();
-    index
-        .refresh()
-        .with_context(|| format!("registry refresh failed for '{}'", registry_url))?;
-    eprintln!(" {}", "done".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()));
+    // bv lock uses the cached index; run `bv add` to fetch the latest registry state.
+    crate::registry::require_index(&index, &registry_url)?;
 
     let resolved = ops::resolve_all(&bv_toml.tools, &index)?;
 
     let mp = MultiProgress::new();
-    let new_lock =
-        ops::generate_lockfile(resolved, existing_lock.as_ref(), None, &mp).await?;
+    let new_lock = ops::generate_lockfile(resolved, existing_lock.as_ref(), None, &mp).await?;
 
     if check {
         match &existing_lock {
             None => {
-                anyhow::bail!(
-                    "no bv.lock found\n  run `bv lock` to generate it"
-                );
+                anyhow::bail!("no bv.lock found\n  run `bv lock` to generate it");
             }
             Some(existing) => {
                 if existing.is_equivalent_to(&new_lock) {

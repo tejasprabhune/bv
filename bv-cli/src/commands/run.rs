@@ -22,9 +22,7 @@ pub fn run(tool: &str, args: &[String]) -> anyhow::Result<()> {
     let lockfile = BvLock::from_path(&bv_lock_path).context("failed to read bv.lock")?;
 
     let entry = lockfile.tools.get(tool).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Tool '{tool}' is not in this project. Run `bv add {tool}` first."
-        )
+        anyhow::anyhow!("Tool '{tool}' is not in this project. Run `bv add {tool}` first.")
     })?;
 
     // Load the cached manifest to get the entrypoint.
@@ -57,15 +55,53 @@ pub fn run(tool: &str, args: &[String]) -> anyhow::Result<()> {
         args.to_vec()
     };
 
+    // Build reference data mounts; fail fast on missing required datasets.
+    let mut mounts = vec![Mount {
+        host_path: cwd.clone(),
+        container_path: PathBuf::from("/workspace"),
+        read_only: false,
+    }];
+    let mut missing_required: Vec<String> = Vec::new();
+    for (key, spec) in &manifest.tool.reference_data {
+        let data_dir = cache.data_dir(&spec.id, &spec.version);
+        if data_dir.exists() {
+            if let Some(mount_path) = &spec.mount_path {
+                mounts.push(Mount {
+                    host_path: data_dir,
+                    container_path: PathBuf::from(mount_path),
+                    read_only: true,
+                });
+            }
+        } else if spec.required {
+            missing_required.push(format!("{}@{}", spec.id, spec.version));
+            eprintln!(
+                "  {} reference data '{key}' not found in cache",
+                "error:".if_supports_color(Stream::Stderr, |t| t.red().bold().to_string())
+            );
+        } else {
+            eprintln!(
+                "  {} optional reference data '{key}' not downloaded; skipping",
+                "warning:".if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string())
+            );
+        }
+    }
+    if !missing_required.is_empty() {
+        let fetch_args = missing_required
+            .iter()
+            .map(|s| s.split('@').next().unwrap_or(s).to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        anyhow::bail!(
+            "required reference data missing\n  \
+             Run: bv data fetch {fetch_args}"
+        );
+    }
+
     let spec = RunSpec {
         image,
         command,
         env: manifest.tool.entrypoint.env.clone(),
-        mounts: vec![Mount {
-            host_path: cwd.clone(),
-            container_path: PathBuf::from("/workspace"),
-            read_only: false,
-        }],
+        mounts,
         gpu: GpuProfile {
             spec: manifest.tool.hardware.gpu.clone(),
         },
@@ -93,9 +129,10 @@ pub fn info(tool: &str) -> anyhow::Result<()> {
     }
 
     let lockfile = BvLock::from_path(&bv_lock_path)?;
-    let entry = lockfile.tools.get(tool).ok_or_else(|| {
-        anyhow::anyhow!("Tool '{tool}' is not in this project.")
-    })?;
+    let entry = lockfile
+        .tools
+        .get(tool)
+        .ok_or_else(|| anyhow::anyhow!("Tool '{tool}' is not in this project."))?;
 
     let cache = CacheLayout::new();
     let manifest_path = cache.manifest_path(tool, &entry.version);
@@ -107,7 +144,10 @@ pub fn info(tool: &str) -> anyhow::Result<()> {
     if let Some(sz) = entry.image_size_bytes {
         println!("Size:      {}", crate::commands::add::format_size(sz));
     }
-    println!("Locked:    {}", entry.resolved_at.format("%Y-%m-%d %H:%M UTC"));
+    println!(
+        "Locked:    {}",
+        entry.resolved_at.format("%Y-%m-%d %H:%M UTC")
+    );
     println!("Manifest:  {}", manifest_path.display());
 
     if manifest_path.exists() {
@@ -126,7 +166,11 @@ pub fn info(tool: &str) -> anyhow::Result<()> {
             }
         }
     } else {
-        eprintln!("{}", "(manifest not cached; run `bv add` to refresh)".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()));
+        eprintln!(
+            "{}",
+            "(manifest not cached; run `bv add` to refresh)"
+                .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string())
+        );
     }
 
     Ok(())

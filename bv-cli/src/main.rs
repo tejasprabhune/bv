@@ -3,6 +3,7 @@ mod commands;
 mod errors;
 mod ops;
 mod progress;
+mod registry;
 
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -23,9 +24,11 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     match &cli.command {
-        Commands::Add { tools, registry, ignore_hardware } => {
-            commands::add::run(tools, registry.as_deref(), *ignore_hardware).await
-        }
+        Commands::Add {
+            tools,
+            registry,
+            ignore_hardware,
+        } => commands::add::run(tools, registry.as_deref(), *ignore_hardware).await,
         Commands::Remove { tool } => commands::remove::run(tool),
         Commands::Run { tool, args } => commands::run::run(tool, args),
         Commands::List => commands::list::run(),
@@ -37,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
             commands::sync::run(*frozen, registry.as_deref()).await
         }
         Commands::Doctor => commands::doctor::run(),
-        Commands::Data(data_cmd) => commands::data(data_cmd),
+        Commands::Data(dc) => commands::data_cmd(dc).await,
         Commands::Cache(cache_cmd) => commands::cache(cache_cmd),
     }
 }

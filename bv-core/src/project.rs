@@ -61,8 +61,7 @@ impl BvToml {
     }
 
     pub fn to_path(&self, path: &Path) -> Result<()> {
-        let s =
-            toml::to_string_pretty(self).map_err(|e| BvError::ManifestParse(e.to_string()))?;
+        let s = toml::to_string_pretty(self).map_err(|e| BvError::ManifestParse(e.to_string()))?;
         atomic_write(path, &s)
     }
 }

@@ -251,7 +251,9 @@ impl DockerRuntime {
                 .args(["image", "inspect", "--format", "{{.Id}}", image_ref])
                 .output()
                 .map_err(|e| BvError::RuntimeError(e.to_string()))?;
-            Ok(String::from_utf8_lossy(&id_output.stdout).trim().to_string())
+            Ok(String::from_utf8_lossy(&id_output.stdout)
+                .trim()
+                .to_string())
         }
     }
 }

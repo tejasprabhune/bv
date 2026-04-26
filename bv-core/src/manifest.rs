@@ -95,8 +95,7 @@ impl HardwareSpec {
                 out.push(HardwareMismatch::NoGpu);
             } else {
                 if let Some(min_vram) = gpu_req.min_vram_gb {
-                    let best_vram_mb =
-                        detected.gpus.iter().map(|g| g.vram_mb).max().unwrap_or(0);
+                    let best_vram_mb = detected.gpus.iter().map(|g| g.vram_mb).max().unwrap_or(0);
                     let best_vram_gb = (best_vram_mb as f64 / 1024.0).floor() as u32;
                     if best_vram_gb < min_vram {
                         out.push(HardwareMismatch::InsufficientVram {
@@ -106,8 +105,11 @@ impl HardwareSpec {
                     }
                 }
                 if let Some(min_cuda) = &gpu_req.cuda_version {
-                    let best_cuda =
-                        detected.gpus.iter().filter_map(|g| g.cuda_version.as_ref()).max();
+                    let best_cuda = detected
+                        .gpus
+                        .iter()
+                        .filter_map(|g| g.cuda_version.as_ref())
+                        .max();
                     match best_cuda {
                         None => out.push(HardwareMismatch::NoCuda {
                             required: min_cuda.clone(),
@@ -163,6 +165,12 @@ pub struct ReferenceDataSpec {
     pub id: String,
     pub version: String,
     pub required: bool,
+    /// Container path where the dataset directory is mounted read-only, e.g. `/data/uniref90`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mount_path: Option<String>,
+    /// Approximate compressed size in bytes; shown in `bv add` reference data notice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

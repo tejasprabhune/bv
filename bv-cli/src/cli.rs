@@ -88,12 +88,19 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum DataCommands {
-    /// Download a reference dataset declared in bv.toml.
+    /// Download one or more reference datasets from the registry.
     Fetch {
-        /// Dataset identifier.
-        dataset: String,
+        /// Dataset identifiers, optionally with version (e.g. `pdbaa pdbaa@2024_01`).
+        #[arg(required = true)]
+        datasets: Vec<String>,
+        /// Registry URL or local path. Overrides BV_REGISTRY env var and bv.toml.
+        #[arg(long, env = "BV_REGISTRY")]
+        registry: Option<String>,
+        /// Skip the size confirmation prompt.
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
-    /// List reference datasets declared in bv.toml.
+    /// List reference datasets present in the local cache.
     List,
 }
 

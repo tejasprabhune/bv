@@ -44,7 +44,12 @@ impl DetectedHardware {
 
         let gpus = detect_gpus();
 
-        Self { cpu_cores, ram_mb, disk_free_mb, gpus }
+        Self {
+            cpu_cores,
+            ram_mb,
+            disk_free_mb,
+            gpus,
+        }
     }
 
     pub fn ram_gb(&self) -> f64 {
@@ -61,11 +66,25 @@ impl DetectedHardware {
 #[derive(Debug, Clone)]
 pub enum HardwareMismatch {
     NoGpu,
-    InsufficientVram { required_gb: u32, available_gb: u32 },
-    CudaTooOld { required: CudaVersion, available: CudaVersion },
-    NoCuda { required: CudaVersion },
-    InsufficientRam { required_gb: f64, available_gb: f64 },
-    InsufficientDisk { required_gb: f64, available_gb: f64 },
+    InsufficientVram {
+        required_gb: u32,
+        available_gb: u32,
+    },
+    CudaTooOld {
+        required: CudaVersion,
+        available: CudaVersion,
+    },
+    NoCuda {
+        required: CudaVersion,
+    },
+    InsufficientRam {
+        required_gb: f64,
+        available_gb: f64,
+    },
+    InsufficientDisk {
+        required_gb: f64,
+        available_gb: f64,
+    },
 }
 
 impl fmt::Display for HardwareMismatch {
@@ -74,25 +93,37 @@ impl fmt::Display for HardwareMismatch {
             HardwareMismatch::NoGpu => {
                 write!(f, "NVIDIA GPU required but none detected")
             }
-            HardwareMismatch::InsufficientVram { required_gb, available_gb } => {
+            HardwareMismatch::InsufficientVram {
+                required_gb,
+                available_gb,
+            } => {
                 write!(
                     f,
                     "GPU requires ≥{required_gb} GB VRAM, but best available is {available_gb} GB"
                 )
             }
-            HardwareMismatch::CudaTooOld { required, available } => {
+            HardwareMismatch::CudaTooOld {
+                required,
+                available,
+            } => {
                 write!(f, "CUDA ≥{required} required, driver supports {available}")
             }
             HardwareMismatch::NoCuda { required } => {
                 write!(f, "CUDA ≥{required} required but no CUDA driver detected")
             }
-            HardwareMismatch::InsufficientRam { required_gb, available_gb } => {
+            HardwareMismatch::InsufficientRam {
+                required_gb,
+                available_gb,
+            } => {
                 write!(
                     f,
                     "{required_gb:.0} GB RAM required, only {available_gb:.1} GB available"
                 )
             }
-            HardwareMismatch::InsufficientDisk { required_gb, available_gb } => {
+            HardwareMismatch::InsufficientDisk {
+                required_gb,
+                available_gb,
+            } => {
                 write!(
                     f,
                     "{required_gb:.0} GB free disk required, only {available_gb:.1} GB available"
@@ -134,7 +165,12 @@ fn parse_gpu_csv(line: &str, cuda_version: Option<CudaVersion>) -> Option<GpuInf
     let vram_mb = parts[1].parse::<u64>().ok()?;
     let driver_version = parts.get(2).map(|s| s.to_string());
 
-    Some(GpuInfo { name, vram_mb, driver_version, cuda_version })
+    Some(GpuInfo {
+        name,
+        vram_mb,
+        driver_version,
+        cuda_version,
+    })
 }
 
 /// Parse "CUDA Version: X.Y" from the `nvidia-smi` plain-text header.

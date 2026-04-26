@@ -52,9 +52,9 @@ pub fn resolve_all(
         let manifest = index
             .get_manifest(&decl.id, &version_req)
             .with_context(|| format!("could not resolve '{}' in registry", decl.id))?;
-        manifest
-            .validate()
-            .map_err(|e| anyhow::anyhow!("manifest validation errors for '{}': {:?}", decl.id, e))?;
+        manifest.validate().map_err(|e| {
+            anyhow::anyhow!("manifest validation errors for '{}': {:?}", decl.id, e)
+        })?;
 
         let oci_ref: OciRef = manifest
             .tool
@@ -101,9 +101,7 @@ pub async fn generate_lockfile(
         tokio::task::JoinSet::new();
 
     for r in resolved {
-        let existing_entry = existing
-            .and_then(|l| l.tools.get(&r.tool_id))
-            .cloned();
+        let existing_entry = existing.and_then(|l| l.tools.get(&r.tool_id)).cloned();
         let reporter = CliProgressReporter::for_multi(mp);
         let permit = sem.clone().acquire_owned().await.expect("semaphore closed");
 
@@ -130,8 +128,8 @@ pub fn pull_or_reuse(
 ) -> anyhow::Result<LockfileEntry> {
     if let Some(e) = existing {
         let version_matches = e.version == resolved.manifest.tool.version;
-        let manifest_matches = e.manifest_sha256.is_empty()
-            || e.manifest_sha256 == resolved.manifest_sha256;
+        let manifest_matches =
+            e.manifest_sha256.is_empty() || e.manifest_sha256 == resolved.manifest_sha256;
 
         if version_matches && manifest_matches {
             return Ok(LockfileEntry {
@@ -162,7 +160,10 @@ pub fn pull_and_make_entry(
         .pull(&resolved.oci_ref, reporter)
         .with_context(|| format!("failed to pull '{}'", resolved.oci_ref.docker_arg()))?;
 
-    let size_bytes = DockerRuntime.inspect(&digest).ok().and_then(|m| m.size_bytes);
+    let size_bytes = DockerRuntime
+        .inspect(&digest)
+        .ok()
+        .and_then(|m| m.size_bytes);
 
     crate::commands::add::cache_manifest(cache, &resolved.manifest)?;
 
@@ -177,7 +178,9 @@ pub fn pull_and_make_entry(
     eprintln!(
         "  {} {} {}  {} {}",
         "Added".if_supports_color(Stream::Stderr, |t| t.green().bold().to_string()),
-        resolved.tool_id.if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
+        resolved
+            .tool_id
+            .if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
         resolved.manifest.tool.version,
         short.if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
         size_str.if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),

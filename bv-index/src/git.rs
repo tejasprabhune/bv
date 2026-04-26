@@ -2,6 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
+use bv_core::data::DataManifest;
 use bv_core::error::{BvError, Result};
 use bv_core::manifest::Manifest;
 use semver::{Version, VersionReq};
@@ -20,17 +21,42 @@ impl GitIndex {
             local_path: local_path.into(),
         }
     }
-}
 
-impl IndexBackend for GitIndex {
-    fn name(&self) -> &str {
-        "git"
+    /// Refresh only if the local clone is older than `ttl`.
+    /// Returns `true` when an actual network fetch was performed.
+    pub fn refresh_if_stale(&self, ttl: std::time::Duration) -> Result<bool> {
+        let stamp = self.local_path.join(".bv-refresh");
+        let is_fresh = stamp
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .map(|elapsed| elapsed < ttl)
+            .unwrap_or(false);
+
+        if is_fresh {
+            return Ok(false);
+        }
+
+        self.git_refresh()?;
+        self.touch_stamp();
+        Ok(true)
     }
 
-    fn refresh(&self) -> Result<()> {
+    /// True when the local clone exists and has been fetched at least once.
+    pub fn is_available(&self) -> bool {
+        self.local_path.join(".bv-refresh").exists() || self.local_path.join(".git").exists()
+    }
+
+    fn git_refresh(&self) -> Result<()> {
         if self.local_path.exists() {
             let out = Command::new("git")
-                .args(["-C", &self.local_path.to_string_lossy(), "pull", "--ff-only"])
+                .args([
+                    "-C",
+                    &self.local_path.to_string_lossy(),
+                    "pull",
+                    "--ff-only",
+                ])
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped())
                 .output()?;
@@ -47,7 +73,13 @@ impl IndexBackend for GitIndex {
                 fs::create_dir_all(parent)?;
             }
             let out = Command::new("git")
-                .args(["clone", "--depth", "1", &self.url, &self.local_path.to_string_lossy()])
+                .args([
+                    "clone",
+                    "--depth",
+                    "1",
+                    &self.url,
+                    &self.local_path.to_string_lossy(),
+                ])
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped())
                 .output()?;
@@ -60,6 +92,23 @@ impl IndexBackend for GitIndex {
                 )));
             }
         }
+        Ok(())
+    }
+
+    fn touch_stamp(&self) {
+        let stamp = self.local_path.join(".bv-refresh");
+        let _ = fs::write(&stamp, "");
+    }
+}
+
+impl IndexBackend for GitIndex {
+    fn name(&self) -> &str {
+        "git"
+    }
+
+    fn refresh(&self) -> Result<()> {
+        self.git_refresh()?;
+        self.touch_stamp();
         Ok(())
     }
 
@@ -95,9 +144,7 @@ impl IndexBackend for GitIndex {
 
         let manifest_path = tool_dir.join(format!("{best}.toml"));
         let s = fs::read_to_string(&manifest_path).map_err(|e| {
-            BvError::IndexError(format!(
-                "could not read manifest for '{tool}@{best}': {e}"
-            ))
+            BvError::IndexError(format!("could not read manifest for '{tool}@{best}': {e}"))
         })?;
 
         Manifest::from_toml_str(&s)
@@ -143,7 +190,6 @@ impl IndexBackend for GitIndex {
             let id = entry.file_name().to_string_lossy().to_string();
             let versions = self.list_versions(&id).unwrap_or_default();
 
-            // Pull description from the latest version's manifest.
             let description = versions.last().and_then(|v| {
                 let p = tools_dir.join(&id).join(format!("{v}.toml"));
                 fs::read_to_string(p)
@@ -161,5 +207,55 @@ impl IndexBackend for GitIndex {
 
         tools.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(tools)
+    }
+
+    fn get_data_manifest(&self, dataset: &str, version: Option<&str>) -> Result<DataManifest> {
+        let data_dir = self.local_path.join("data").join(dataset);
+        if !data_dir.exists() {
+            return Err(BvError::IndexError(format!(
+                "dataset '{dataset}' not found in registry"
+            )));
+        }
+
+        let ver = if let Some(v) = version {
+            v.to_string()
+        } else {
+            let mut versions = self.list_data_versions(dataset)?;
+            versions.sort();
+            versions.into_iter().last().ok_or_else(|| {
+                BvError::IndexError(format!("no versions of '{dataset}' found in registry"))
+            })?
+        };
+
+        let manifest_path = data_dir.join(format!("{ver}.toml"));
+        let s = fs::read_to_string(&manifest_path).map_err(|e| {
+            BvError::IndexError(format!(
+                "could not read data manifest for '{dataset}@{ver}': {e}"
+            ))
+        })?;
+
+        DataManifest::from_toml_str(&s)
+    }
+
+    fn list_data_versions(&self, dataset: &str) -> Result<Vec<String>> {
+        let data_dir = self.local_path.join("data").join(dataset);
+        if !data_dir.exists() {
+            return Err(BvError::IndexError(format!(
+                "dataset '{dataset}' not found in registry"
+            )));
+        }
+
+        let mut versions = Vec::new();
+        for entry in fs::read_dir(&data_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "toml")
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            {
+                versions.push(stem.to_string());
+            }
+        }
+        versions.sort();
+        Ok(versions)
     }
 }

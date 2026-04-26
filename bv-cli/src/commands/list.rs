@@ -24,8 +24,18 @@ pub fn run() -> anyhow::Result<()> {
     let mut tools: Vec<_> = lockfile.tools.values().collect();
     tools.sort_by(|a, b| a.tool_id.cmp(&b.tool_id));
 
-    let w_tool = tools.iter().map(|e| e.tool_id.len()).max().unwrap_or(4).max(4);
-    let w_ver = tools.iter().map(|e| e.version.len()).max().unwrap_or(7).max(7);
+    let w_tool = tools
+        .iter()
+        .map(|e| e.tool_id.len())
+        .max()
+        .unwrap_or(4)
+        .max(4);
+    let w_ver = tools
+        .iter()
+        .map(|e| e.version.len())
+        .max()
+        .unwrap_or(7)
+        .max(7);
 
     println!(
         "  {:<w_tool$}  {:<w_ver$}  {:<12}  {:<8}  {}",
@@ -39,7 +49,10 @@ pub fn run() -> anyhow::Result<()> {
 
     for entry in tools {
         let digest_short = short_digest(&entry.image_digest);
-        let size = entry.image_size_bytes.map(format_size).unwrap_or_else(|| "-".into());
+        let size = entry
+            .image_size_bytes
+            .map(format_size)
+            .unwrap_or_else(|| "-".into());
         let date = entry.resolved_at.format("%Y-%m-%d").to_string();
 
         println!(

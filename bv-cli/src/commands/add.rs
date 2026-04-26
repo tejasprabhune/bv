@@ -12,7 +12,7 @@ use bv_core::hardware::DetectedHardware;
 use bv_core::lockfile::Lockfile;
 use bv_core::manifest::Manifest;
 use bv_core::project::{BvLock, BvToml, ProjectMeta, RegistryConfig, ToolDeclaration};
-use bv_index::{GitIndex, IndexBackend as _};
+use bv_index::IndexBackend as _;
 use bv_runtime::{ContainerRuntime, DockerRuntime, OciRef};
 
 use crate::errors::print_hardware_mismatch;
@@ -40,7 +40,10 @@ pub async fn run(
             "note:".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string())
         );
         BvToml {
-            project: ProjectMeta { name, description: None },
+            project: ProjectMeta {
+                name,
+                description: None,
+            },
             registry: None,
             tools: vec![],
             data: HashMap::new(),
@@ -54,22 +57,16 @@ pub async fn run(
         Lockfile::new()
     };
 
-    let registry_url: String = registry_flag
-        .map(|s| s.to_string())
-        .or_else(|| std::env::var("BV_REGISTRY").ok())
-        .or_else(|| bv_toml.registry.as_ref().map(|r| r.url.clone()))
-        .context(
-            "no registry configured\n  \
-             set BV_REGISTRY, pass --registry <url>, \
-             or add [registry] url = \"...\" to bv.toml",
-        )?;
+    let registry_url = crate::registry::resolve_registry_url(registry_flag, Some(&bv_toml));
 
     if bv_toml.registry.is_none() {
-        bv_toml.registry = Some(RegistryConfig { url: registry_url.clone() });
+        bv_toml.registry = Some(RegistryConfig {
+            url: registry_url.clone(),
+        });
     }
 
     let cache = CacheLayout::new();
-    let index = GitIndex::new(&registry_url, cache.index_dir("default"));
+    let index = crate::registry::open_index(&registry_url, &cache);
 
     eprint!(
         "  {} index",
@@ -79,7 +76,10 @@ pub async fn run(
     index
         .refresh()
         .with_context(|| format!("registry refresh failed for '{}'", registry_url))?;
-    eprintln!(" {}", "done".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()));
+    eprintln!(
+        " {}",
+        "done".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string())
+    );
 
     // Resolve manifests for each spec.
     let mut to_add: Vec<ops::ResolvedTool> = Vec::new();
@@ -90,9 +90,9 @@ pub async fn run(
         let manifest = index
             .get_manifest(&tool_id, &version_req)
             .with_context(|| format!("could not resolve '{}' in registry", spec))?;
-        manifest
-            .validate()
-            .map_err(|e| anyhow::anyhow!("manifest validation errors for '{}': {:?}", tool_id, e))?;
+        manifest.validate().map_err(|e| {
+            anyhow::anyhow!("manifest validation errors for '{}': {:?}", tool_id, e)
+        })?;
 
         if let Some(existing) = lockfile.tools.get(&tool_id)
             && existing.version == manifest.tool.version
@@ -101,7 +101,10 @@ pub async fn run(
                 "  {} {} {} is already up to date",
                 "note:".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
                 tool_id,
-                manifest.tool.version.if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
+                manifest
+                    .tool
+                    .version
+                    .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
             );
             continue;
         }
@@ -115,7 +118,13 @@ pub async fn run(
 
         let manifest_sha256 = ops::compute_manifest_sha256(&manifest)?;
 
-        to_add.push(ops::ResolvedTool { tool_id, version_req, manifest, oci_ref, manifest_sha256 });
+        to_add.push(ops::ResolvedTool {
+            tool_id,
+            version_req,
+            manifest,
+            oci_ref,
+            manifest_sha256,
+        });
     }
 
     if to_add.is_empty() {
@@ -136,10 +145,14 @@ pub async fn run(
         if any_mismatch {
             anyhow::bail!("hardware requirements not met; use --ignore-hardware to override");
         }
-    } else if to_add
-        .iter()
-        .any(|r| r.manifest.tool.hardware.gpu.as_ref().is_some_and(|g| g.required))
-    {
+    } else if to_add.iter().any(|r| {
+        r.manifest
+            .tool
+            .hardware
+            .gpu
+            .as_ref()
+            .is_some_and(|g| g.required)
+    }) {
         eprintln!(
             "  {} ignoring hardware requirements for GPU tool(s)",
             "warning:".if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string())
@@ -188,20 +201,75 @@ pub async fn run(
     }
 
     // Update bv.toml and bv.lock atomically.
-    for entry in pulled {
+    for entry in &pulled {
         if !bv_toml.tools.iter().any(|t| t.id == entry.tool_id) {
             let version_str = entry.declared_version_req.clone();
-            bv_toml
-                .tools
-                .push(ToolDeclaration { id: entry.tool_id.clone(), version: version_str });
+            bv_toml.tools.push(ToolDeclaration {
+                id: entry.tool_id.clone(),
+                version: version_str,
+            });
         }
-        lockfile.tools.insert(entry.tool_id.clone(), entry);
+        lockfile.tools.insert(entry.tool_id.clone(), entry.clone());
     }
 
     bv_toml.to_path(&bv_toml_path)?;
     BvLock::to_path(&lockfile, &bv_lock_path)?;
 
+    // Print reference data notice for any tool that declares datasets.
+    for entry in &pulled {
+        let manifest_path = cache.manifest_path(&entry.tool_id, &entry.version);
+        if let Ok(s) = std::fs::read_to_string(&manifest_path)
+            && let Ok(m) = Manifest::from_toml_str(&s)
+            && !m.tool.reference_data.is_empty()
+        {
+            print_reference_data_notice(&entry.tool_id, &m);
+        }
+    }
+
     Ok(())
+}
+
+fn print_reference_data_notice(tool_id: &str, manifest: &Manifest) {
+    let mut datasets: Vec<_> = manifest.tool.reference_data.values().collect();
+    datasets.sort_by(|a, b| a.id.cmp(&b.id));
+
+    eprintln!(
+        "\n  {} requires the following reference datasets:",
+        tool_id.if_supports_color(Stream::Stderr, |t| t.bold().to_string())
+    );
+
+    let mut fetch_ids: Vec<String> = Vec::new();
+    for spec in &datasets {
+        let size_hint = spec
+            .size_bytes
+            .map(|b| {
+                format!(
+                    "  {}",
+                    format_size(b).if_supports_color(Stream::Stderr, |t| t.dimmed().to_string())
+                )
+            })
+            .unwrap_or_default();
+        let req_tag: String = if spec.required {
+            "required"
+                .if_supports_color(Stream::Stderr, |t| t.yellow().to_string())
+                .to_string()
+        } else {
+            "optional"
+                .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string())
+                .to_string()
+        };
+        eprintln!(
+            "    {}@{}{}  ({})",
+            spec.id, spec.version, size_hint, req_tag
+        );
+        fetch_ids.push(spec.id.clone());
+    }
+
+    eprintln!(
+        "\n  Fetch with: {}",
+        format!("bv data fetch {}", fetch_ids.join(" "))
+            .if_supports_color(Stream::Stderr, |t| t.bold().to_string())
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -220,9 +288,8 @@ pub fn parse_tool_spec(spec: &str) -> anyhow::Result<(String, VersionReq)> {
             VersionReq::parse(&format!("={}", ver_str))
                 .map_err(|e| anyhow::anyhow!("invalid version req: {}", e))?
         } else {
-            VersionReq::parse(ver_str).map_err(|e| {
-                anyhow::anyhow!("invalid version requirement '{}': {}", ver_str, e)
-            })?
+            VersionReq::parse(ver_str)
+                .map_err(|e| anyhow::anyhow!("invalid version requirement '{}': {}", ver_str, e))?
         };
         Ok((id.to_string(), req))
     } else {

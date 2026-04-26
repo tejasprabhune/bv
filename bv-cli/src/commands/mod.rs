@@ -1,4 +1,5 @@
 pub mod add;
+pub mod data;
 pub mod doctor;
 pub mod list;
 pub mod lock;
@@ -6,26 +7,17 @@ pub mod remove;
 pub mod run;
 pub mod sync;
 
-use owo_colors::{OwoColorize, Stream};
-
 use crate::cli::{CacheCommands, DataCommands};
 
-pub fn data(cmd: &DataCommands) -> anyhow::Result<()> {
+pub async fn data_cmd(cmd: &DataCommands) -> anyhow::Result<()> {
     match cmd {
-        DataCommands::Fetch { dataset } => {
-            eprintln!(
-                "  {} data fetch {dataset}: not yet implemented",
-                "note:".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string())
-            );
-        }
-        DataCommands::List => {
-            eprintln!(
-                "  {} data list: not yet implemented",
-                "note:".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string())
-            );
-        }
+        DataCommands::Fetch {
+            datasets,
+            registry,
+            yes,
+        } => data::fetch(datasets, registry.as_deref(), *yes).await,
+        DataCommands::List => data::list(),
     }
-    Ok(())
 }
 
 pub fn cache(cmd: &CacheCommands) -> anyhow::Result<()> {
@@ -39,7 +31,7 @@ pub fn cache(cmd: &CacheCommands) -> anyhow::Result<()> {
                 eprintln!("  Use `docker images` to see locally cached images.");
                 eprintln!("  Pass --apply to actually remove (once implemented).");
             }
+            Ok(())
         }
     }
-    Ok(())
 }
