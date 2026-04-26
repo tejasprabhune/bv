@@ -66,7 +66,7 @@ blastn: 2.15.0+
  Package: blast 2.15.0, build ...
 ```
 
-**Talking points:** `bv add` pulls from the registry, locks to a digest, writes `bv.toml` and `bv.lock`. `bv run` uses the pinned digest — not the tag — so it is always the same binary.
+**Talking points:** `bv add` pulls from the registry, locks to a digest, writes `bv.toml` and `bv.lock`. `bv run` uses the pinned digest, not the tag, so it is always the same binary.
 
 ## Part 3: Add multiple tools in parallel (30 s)
 
@@ -147,7 +147,7 @@ Expected:
   Fetch with: bv data fetch uniref90 bfd pdb70
 ```
 
-**Talking points:** `bv add` warns about reference data but does not auto-download — these are terabyte-scale databases. The user opts in with `bv data fetch`. On a machine with a GPU, drop `--ignore-hardware`.
+**Talking points:** `bv add` warns about reference data but does not auto-download; these are terabyte-scale databases. The user opts in with `bv data fetch`. On a machine with a GPU, drop `--ignore-hardware`.
 
 ## Part 6: Reference data (30 s, GPU machine or skip)
 
@@ -207,7 +207,7 @@ Expected:
   Synced   mmseqs2 14.7564.0  cafebabe
 ```
 
-**Talking points:** `bv sync` does not re-resolve versions or pull from the registry — it reads `bv.lock` and pulls by digest. If the image is already in Docker's local cache (e.g., on the same machine or a shared layer cache), it skips the pull. This is what makes `bv sync` fast in practice.
+**Talking points:** `bv sync` does not re-resolve versions or pull from the registry; it reads `bv.lock` and pulls by digest. If the image is already in Docker's local cache (e.g., on the same machine or a shared layer cache), it skips the pull. This is what makes `bv sync` fast in practice.
 
 ## Part 9: CI validation (30 s)
 

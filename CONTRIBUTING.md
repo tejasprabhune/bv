@@ -34,7 +34,7 @@ BV_CACHE_DIR=/tmp/bv-test cargo test --test integration -- --include-ignored
 
 - Rust edition 2024; let chains are used throughout
 - All user-visible output goes to `stderr`; only table data (`bv list`) goes to `stdout`
-- Color output uses `owo_colors` with `if_supports_color` — this strips ANSI in CI automatically
+- Color output uses `owo_colors` with `if_supports_color`; strips ANSI in CI automatically
 - No em-dashes in comments or strings; no `// ----` separator blocks
 - No multi-line comments where a well-named function or type suffices
 

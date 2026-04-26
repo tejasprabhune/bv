@@ -77,7 +77,7 @@ impl Default for LockfileMetadata {
 /// would differ from the on-disk one on any stability field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Lockfile {
-    /// Schema version — currently always `1`.
+    /// Schema version; currently always `1`.
     pub version: u32,
     #[serde(default)]
     pub metadata: LockfileMetadata,

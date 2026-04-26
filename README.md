@@ -25,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/mlberkeley/bv/main/install.sh | sh
 Or with Cargo:
 
 ```sh
-cargo install bio-bv
+cargo install biov
 ```
 
 ### Five commands to a reproducible analysis
@@ -241,7 +241,7 @@ Installs the latest release binary to `~/.local/bin/bv`.
 ### Cargo
 
 ```sh
-cargo install bio-bv
+cargo install biov
 ```
 
 ### Build from source

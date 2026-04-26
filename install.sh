@@ -74,7 +74,7 @@ get_target() {
             fi
             ;;
         *)
-            err "unsupported OS: $_os. Install with: cargo install bio-bv"
+            err "unsupported OS: $_os. Install with: cargo install biov"
             ;;
     esac
 }
@@ -202,7 +202,7 @@ main() {
     rm -f "$_tmp_json"
 
     if [ -z "$_latest" ]; then
-        err "could not determine latest release. Install with: cargo install bio-bv"
+        err "could not determine latest release. Install with: cargo install biov"
     fi
 
     local _url="https://github.com/${REPO}/releases/download/${_latest}/bv-${_target}"

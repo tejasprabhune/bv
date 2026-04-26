@@ -1,11 +1,11 @@
 [package]
-name = "bio-bv"
+name = "biov"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "A uv-style tool manager for bioinformatics — reproducible Docker-backed tools with digest-pinned lockfiles"
+description = "A uv-style tool manager for bioinformatics: reproducible Docker-backed tools with digest-pinned lockfiles (installs as `bv`)"
 keywords = ["bioinformatics", "docker", "reproducibility", "cli", "containers"]
 categories = ["command-line-utilities", "science"]
 
