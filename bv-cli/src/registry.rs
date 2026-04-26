@@ -47,12 +47,12 @@ pub fn maybe_print_refresh(refreshed: bool) {
 }
 
 /// Require that the local index clone exists, giving a helpful error otherwise.
-pub fn require_index(index: &GitIndex, registry_url: &str) -> anyhow::Result<()> {
+pub fn require_index(index: &GitIndex, _registry_url: &str) -> anyhow::Result<()> {
     if !index.is_available() {
         anyhow::bail!(
             "registry index not cloned yet\n  \
-             Run `bv add <tool>` (or set BV_REGISTRY={}) to initialise",
-            registry_url
+             Run `bv add <tool>` to clone the registry and resolve your tools\n  \
+             Or if you already have a bv.lock, run `bv sync` to pull images directly"
         );
     }
     Ok(())

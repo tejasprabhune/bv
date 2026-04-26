@@ -401,7 +401,11 @@ resolved_at = "2024-01-15T10:00:00Z"
     .unwrap();
 
     // Write a cached manifest that declares required reference data
-    let manifest_dir = cache.path().join("tools").join("fake-ref-tool").join("1.0.0");
+    let manifest_dir = cache
+        .path()
+        .join("tools")
+        .join("fake-ref-tool")
+        .join("1.0.0");
     std::fs::create_dir_all(&manifest_dir).unwrap();
     std::fs::write(
         manifest_dir.join("manifest.toml"),

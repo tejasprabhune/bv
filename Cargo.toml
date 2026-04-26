@@ -3,7 +3,7 @@ members = ["bv-cli", "bv-core", "bv-runtime", "bv-index"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 description = "A uv-style tool manager for bioinformatics."
 edition = "2024"
 license = "Apache-2.0"

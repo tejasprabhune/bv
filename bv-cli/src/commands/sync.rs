@@ -56,9 +56,10 @@ pub async fn run(frozen: bool, registry_flag: Option<&str>) -> anyhow::Result<()
     sorted_tools.sort_by(|a, b| a.tool_id.cmp(&b.tool_id));
 
     for entry in sorted_tools {
-        let base_ref = base_image_ref(&entry.image_reference);
+        let base_ref = crate::ops::base_image_ref(&entry.image_reference);
 
         if runtime.is_locally_available(&base_ref, &entry.image_digest) {
+            try_restore_manifest(entry);
             eprintln!(
                 "  {} {} {}",
                 "Present".if_supports_color(Stream::Stderr, |t| t.green().to_string()),
@@ -102,6 +103,7 @@ pub async fn run(frozen: bool, registry_flag: Option<&str>) -> anyhow::Result<()
                         short_digest(&pulled_digest.0),
                     ));
                 } else {
+                    try_restore_manifest(entry);
                     eprintln!(
                         "  {} {} {}  {}",
                         "Synced"
@@ -207,13 +209,25 @@ fn check_drift(
     Some(warnings)
 }
 
-/// Strip the tag from an image reference to get the base for digest lookups.
-fn base_image_ref(image_reference: &str) -> String {
-    if let Some(colon_pos) = image_reference.rfind(':') {
-        let before = &image_reference[..colon_pos];
-        if before.contains('/') || !before.contains(':') {
-            return before.to_string();
-        }
+/// Restore the cached manifest from the local git index clone if it is missing.
+/// Best-effort: silently skips if the index hasn't been cloned yet.
+fn try_restore_manifest(entry: &bv_core::lockfile::LockfileEntry) {
+    let cache = bv_core::cache::CacheLayout::new();
+    let manifest_path = cache.manifest_path(&entry.tool_id, &entry.version);
+    if manifest_path.exists() {
+        return;
     }
-    image_reference.to_string()
+    let index_manifest = cache
+        .index_dir("default")
+        .join("tools")
+        .join(&entry.tool_id)
+        .join(format!("{}.toml", entry.version));
+    if !index_manifest.exists() {
+        return;
+    }
+    if let Ok(s) = std::fs::read_to_string(&index_manifest)
+        && let Ok(m) = bv_core::manifest::Manifest::from_toml_str(&s)
+    {
+        let _ = crate::commands::add::cache_manifest(&cache, &m);
+    }
 }

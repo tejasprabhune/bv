@@ -33,11 +33,28 @@ pub fn run(tool: &str, args: &[String]) -> anyhow::Result<()> {
             .with_context(|| format!("failed to read cached manifest for '{tool}'"))?;
         Manifest::from_toml_str(&s)?
     } else {
-        anyhow::bail!(
-            "Cached manifest for '{tool}@{}' not found.\n\
-             Try running `bv add {tool}` again to re-resolve.",
-            entry.version
-        );
+        // Manifest was evicted from cache (e.g. user deleted ~/.cache/bv).
+        // Recover it from the local git index clone without a network request.
+        let index_manifest = cache
+            .index_dir("default")
+            .join("tools")
+            .join(tool)
+            .join(format!("{}.toml", entry.version));
+
+        if index_manifest.exists() {
+            let s = std::fs::read_to_string(&index_manifest)
+                .with_context(|| format!("failed to read index manifest for '{tool}'"))?;
+            let m = Manifest::from_toml_str(&s)?;
+            crate::commands::add::cache_manifest(&cache, &m)
+                .with_context(|| format!("failed to restore cached manifest for '{tool}'"))?;
+            m
+        } else {
+            anyhow::bail!(
+                "Manifest for '{tool}@{}' is not in cache or local index.\n\
+                 Run `bv add {tool}` to restore it.",
+                entry.version
+            );
+        }
     };
 
     // Build the OciRef with pinned digest for reproducible execution.
@@ -109,6 +126,22 @@ pub fn run(tool: &str, args: &[String]) -> anyhow::Result<()> {
     };
 
     let runtime = DockerRuntime;
+
+    // Check Docker is running before we attempt anything.
+    runtime
+        .health_check()
+        .context("Docker is not available. Is Docker Desktop running?")?;
+
+    // Check the pinned image is locally present; if not, guide the user to bv sync.
+    let base_ref = crate::ops::base_image_ref(&entry.image_reference);
+    if !runtime.is_locally_available(&base_ref, &entry.image_digest) {
+        anyhow::bail!(
+            "Image for '{tool}@{}' is not available locally.\n  \
+             Run `bv sync` to pull it.",
+            entry.version
+        );
+    }
+
     let outcome = runtime
         .run(&spec)
         .with_context(|| format!("failed to run '{tool}'"))?;

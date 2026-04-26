@@ -199,6 +199,18 @@ pub fn pull_and_make_entry(
     })
 }
 
+/// Strip the tag/digest from an image reference to get the base form.
+/// e.g. `ncbi/blast:2.15.0` -> `ncbi/blast`, `ghcr.io/foo/bar:latest` -> `ghcr.io/foo/bar`
+pub fn base_image_ref(image_reference: &str) -> String {
+    if let Some(colon_pos) = image_reference.rfind(':') {
+        let before = &image_reference[..colon_pos];
+        if before.contains('/') || !before.contains(':') {
+            return before.to_string();
+        }
+    }
+    image_reference.to_string()
+}
+
 /// Describe the differences between two lockfiles for `bv lock --check`.
 pub fn lock_diff(old: &Lockfile, new: &Lockfile) -> Vec<String> {
     let mut lines = Vec::new();
