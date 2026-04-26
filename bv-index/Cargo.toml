@@ -3,6 +3,9 @@ name = "bv-index"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Registry index trait and Git-backed implementation for biov"
 
 [dependencies]
 bv-core = { version = "0.1.0", path = "../bv-core" }

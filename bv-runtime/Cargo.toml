@@ -3,6 +3,9 @@ name = "bv-runtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Container runtime trait and Docker implementation for biov"
 
 [dependencies]
 bv-core = { version = "0.1.0", path = "../bv-core" }
