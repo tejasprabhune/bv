@@ -1,3 +1,5 @@
+use std::process::Stdio;
+
 use bv_core::cache::CacheLayout;
 use bv_core::error::Result;
 use bv_core::project::BvToml;
@@ -84,6 +86,18 @@ pub fn resolve_runtime(
     build_runtime(backend)
 }
 
+/// Check if the `docker` binary is on PATH without connecting to the daemon.
+/// `docker --version` prints the client version string and exits 0 immediately.
+fn docker_binary_on_path() -> bool {
+    std::process::Command::new("docker")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 fn build_runtime(backend: &str) -> anyhow::Result<AnyRuntime> {
     match backend {
         "docker" => Ok(AnyRuntime::Docker(DockerRuntime)),
@@ -94,7 +108,9 @@ fn build_runtime(backend: &str) -> anyhow::Result<AnyRuntime> {
             )))
         }
         "auto" => {
-            if DockerRuntime.health_check().is_ok() {
+            // Use a fast binary-presence check rather than a full daemon roundtrip.
+            // Each command does its own health_check() once it has the runtime object.
+            if docker_binary_on_path() {
                 return Ok(AnyRuntime::Docker(DockerRuntime));
             }
             if apptainer_available() {

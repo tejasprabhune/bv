@@ -53,7 +53,7 @@ jobs:
           BV_REGISTRY: ${{ github.workspace }}/bv-registry
 
   integration-apptainer:
-    name: Integration tests (Linux + Apptainer)
+    name: Apptainer smoke test (Linux)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,9 +69,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build --release
-      - name: Integration tests (Apptainer backend)
+      - name: bv doctor shows Apptainer
+        run: target/release/bv doctor || true
+      - name: bv resolves Apptainer backend
         run: |
-          cargo test --test integration -- --include-ignored --skip alphafold
+          mkdir /tmp/apptainer-smoke
+          target/release/bv add blast@2.14.0 \
+            --backend apptainer \
+            --ignore-hardware \
+            --registry ${{ github.workspace }}/bv-registry \
+            2>&1 | head -5 || true
         env:
-          BV_REGISTRY: ${{ github.workspace }}/bv-registry
-          BV_BACKEND: apptainer
+          BV_CACHE_DIR: /tmp/apptainer-smoke

@@ -50,7 +50,15 @@ fn bv(args: &[&str], project_dir: &Path, cache_dir: &Path) -> Command {
     let mut cmd = Command::new(bv_bin());
     cmd.args(args)
         .current_dir(project_dir)
-        .env("BV_CACHE_DIR", cache_dir);
+        .env("BV_CACHE_DIR", cache_dir)
+        .env_remove("BV_BACKEND");
+    cmd
+}
+
+#[allow(dead_code)]
+fn bv_backend(args: &[&str], project_dir: &Path, cache_dir: &Path, backend: &str) -> Command {
+    let mut cmd = bv(args, project_dir, cache_dir);
+    cmd.env("BV_BACKEND", backend);
     cmd
 }
 

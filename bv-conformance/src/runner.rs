@@ -80,6 +80,7 @@ pub fn run(
         command,
         &tool.entrypoint.args_template,
         &input_paths,
+        &tool.outputs,
         workspace,
     );
 
@@ -149,6 +150,7 @@ fn substitute_placeholders(
     mut command: Vec<String>,
     args_template: &Option<String>,
     input_paths: &std::collections::HashMap<String, PathBuf>,
+    outputs: &[bv_core::manifest::IoSpec],
     workspace: &Path,
 ) -> Vec<String> {
     let Some(template) = args_template else {
@@ -156,6 +158,8 @@ fn substitute_placeholders(
     };
 
     let mut expanded = template.clone();
+
+    // Substitute input port placeholders: {port} → /workspace/<filename>
     for (port, path) in input_paths {
         let container_path = format!(
             "/workspace/{}",
@@ -163,7 +167,16 @@ fn substitute_placeholders(
         );
         expanded = expanded.replace(&format!("{{{port}}}"), &container_path);
     }
+
+    // Substitute output port placeholders: {port} → /workspace/<port_name>
+    // This must run before the generic {output} fallback below.
+    for output_spec in outputs {
+        let container_path = format!("/workspace/{}", output_spec.name);
+        expanded = expanded.replace(&format!("{{{}}}", output_spec.name), &container_path);
+    }
+
     expanded = expanded.replace("{cpu_cores}", "1");
+    // Generic {output} fallback for manifests that don't name their output port.
     expanded = expanded.replace(
         "{output}",
         &format!(
