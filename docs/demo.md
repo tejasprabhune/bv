@@ -1,42 +1,30 @@
-# bv demo runbook
+# Protein folding with `bv`
 
-A step-by-step script for a recorded demo. Total target: under 5 minutes.
+Work with protein folding in under 3 min with `bv`. You'll need a GPU for this demo!
 
 ## Prerequisites
 
-- macOS or Linux with Docker Desktop (or Docker Engine) running
+- macOS or Linux with Docker (running) or Apptainer.
 - `bv` installed (`cargo install biov` or from a release binary)
-- A terminal with reasonable font size for screen recording
 - A machine with an NVIDIA GPU (>= 8 GB VRAM, CUDA 12) for ColabFold
 
-## Part 1: Environment check (30 s)
+## tl;dr
 
 ```sh
-bv doctor
+mkdir protein-demo && cd protein-demo
+bv add colabfold
+# copy fold.py from this docs dir into protein-demo/
+bv exec python3 fold.py
+
+git add bv.toml bv.lock
+git commit -m "Add reproducible experiment"
+git push origin main
+
+# now anyone who pulls your repo can run:
+bv sync
 ```
 
-Expected output (trimmed):
-
-```
-  Runtime
-    docker     28.x.x  server 28.x.x
-
-  Hardware
-    cpu        14 logical cores
-    ram        32.0 GB total
-    disk       400.0 GB free
-    gpu        NVIDIA RTX 4090 (24 GB VRAM  CUDA 12.4)
-
-  Cache
-    path       /Users/you/.cache/bv
-    size       0 B  0 images
-
-  Project
-    bv.toml    not found in current directory
-    bv.lock    not found
-```
-
-## Part 2: Add a sequence tool and call it by name (60 s)
+## Part 1: Add sequence tools and test them
 
 ```sh
 mkdir protein-demo && cd protein-demo
@@ -45,40 +33,32 @@ cat > trpcage.fasta << 'EOF'
 >trp-cage
 NLYIQWLKDGGPSSGRPPPS
 EOF
-
+ 
 bv add blast
 ```
 
 Expected:
 
 ```
-  Updating index  done
-  Pulling  blast@2.15.0
-  Added    blast 2.15.0  abc123def456  38 MB
+  note: no bv.toml found, creating one
+  Updating index done
+⠙ Pulling blast@2.15.0
+  Pulled ncbi/blast:2.15.0
+  Added blast 2.15.0  77a24a340683
 ```
 
-The blast tool exposes many binaries. Call one directly by name — no need to spell out the tool id:
+The blast tool exposes many binaries. Call one directly by name:
 
 ```sh
 bv run blastn -version
-```
-
-```
 blastn: 2.15.0+
+ Package: blast 2.15.0, build Nov 21 2023 21:05:41
 ```
 
-```sh
-bv run makeblastdb -help | head -3
-```
+`bv run` looked up `blastn` and `makeblastdb` in `bv.lock`'s binary index and routed both to the blast container.
+You can also name the tool explicitly: `bv run blast -- blastn ...`
 
-```
-USAGE
-  makeblastdb [-h] [-help] [-in input_file] ...
-```
-
-`bv run` looked up `blastn` and `makeblastdb` in `bv.lock`'s binary index and routed both to the blast container. You can also name the tool explicitly: `bv run blast -- blastn ...`
-
-## Part 3: Add ColabFold (60 s)
+## Part 2: Add ColabFold
 
 ```sh
 bv add colabfold
@@ -92,7 +72,7 @@ Expected:
   Added    colabfold 1.6.0  ...  ~4 GB
 ```
 
-## Part 4: Inspect the binary routing table (15 s)
+## Part 3: Inspect binaries
 
 ```sh
 bv list --binaries
@@ -113,7 +93,7 @@ bv list --binaries
 
 Every entry becomes a shim in `.bv/bin/`. Both `bv run <binary>` and `bv exec <binary>` route through this table.
 
-## Part 5: Show the project files (30 s)
+## Part 4: Show project files
 
 ```sh
 cat bv.toml
@@ -166,7 +146,7 @@ colabfold_batch = "colabfold"
 
 Both files go into git. Any collaborator with a GPU can run `bv sync` to reproduce the exact same images by digest, and the binary index is rebuilt from the lock automatically.
 
-## Part 6: Interactive session with bv shell (30 s)
+## Part 5: Interactive session with bv shell
 
 ```sh
 bv shell
@@ -184,15 +164,12 @@ All exposed binaries are now on PATH as shims:
 blastn -query trpcage.fasta -subject trpcage.fasta -outfmt 6
 colabfold_batch --help | head -5
 exit
-```
-
-```
 $
 ```
 
 Exiting returns to the original shell cleanly. No deactivation needed.
 
-## Part 7: Run the fold script with bv exec (90 s)
+## Part 6: Run the fold script with bv exec
 
 Scripts and pipelines use `bv exec` to get the same PATH injection without an interactive shell:
 
@@ -208,36 +185,29 @@ Expected output:
 Running ColabFold on trp-cage (20 aa)...
 Output directory: output/
 
+2026-04-27 19:27:16,481 Running colabfold 1.6.0
+Downloading alphafold2_ptm weights to /cache/colabfold: 100%|██████████| 3.47G/3.47G [00:14<00:00, 259MB/s]
+
+...
+
 Results:
-  trp-cage_unrelaxed_rank_001_alphafold2_ptm_model_1_seed_000.pdb
-  trp-cage_scores_rank_001_alphafold2_ptm_model_1_seed_000.json
+  trp-cage_unrelaxed_rank_001_alphafold2_ptm_model_5_seed_000.pdb
+  ...
+  trp-cage_scores_rank_003_alphafold2_ptm_model_3_seed_000.json
 
 pLDDT scores (per residue):
-  N   88.4
-  L   91.2
-  Y   93.7
+  N   87.8
   ...
-  S   87.6
+  S   89.2
 
-Mean pLDDT: 89.5  (> 70 is considered confident)
-Top structure written to: output/trp-cage_unrelaxed_rank_001...pdb
+Mean pLDDT: 94.9  (> 70 is considered confident)
+
+Top structure written to: output/trp-cage_unrelaxed_rank_001_alphafold2_ptm_model_5_seed_000.pdb
 ```
 
 `bv exec` uses `exec(2)` on Unix, so the Python process replaces bv in the process table. Signals, exit codes, and HPC schedulers all see Python directly.
 
-## Part 8: bv list (15 s)
-
-```sh
-bv list
-```
-
-```
-  tool        version    digest        size     added
-  blast       2.15.0     abc123def456  38 MB    2024-01-15 10:00
-  colabfold   1.6.0      def456abc789  4.0 GB   2024-01-15 10:01
-```
-
-## Part 9: Reproduction on another machine (45 s)
+## Part 7: Reproduction on another machine (45 s)
 
 ```sh
 cd /tmp
@@ -257,7 +227,7 @@ Expected:
 
 `bv sync` reads `bv.lock`, pulls by digest, and regenerates `.bv/bin/` so `bv exec` works immediately on the new machine.
 
-## Part 10: CI validation (30 s)
+## Part 8: CI validation (optional)
 
 ```yaml
 - run: bv sync --frozen      # asserts bv.toml and bv.lock are in sync
@@ -266,27 +236,3 @@ Expected:
 ```
 
 `--frozen` catches a tool added to `bv.toml` but not locked. `--check` catches a registry manifest that changed (e.g., a CVE patch bumped the digest). `bv exec` gives Snakemake access to all project binaries without modifying the CI environment's PATH.
-
----
-
-## Timing notes
-
-| Step | Duration |
-|------|----------|
-| `bv doctor` | < 1 s |
-| `bv add blast` | 30-60 s (Docker pull) |
-| `bv add colabfold` | 2-5 min (4 GB image) |
-| `bv list --binaries` | < 1 s |
-| `bv shell` + exit | < 1 s |
-| `bv exec python3 fold.py` on Trp-cage | 2-5 min (includes MSA API call) |
-| `bv list` | < 1 s |
-| `bv sync` (warm Docker cache) | < 5 s per tool |
-
-## Machine requirements
-
-| Feature | Mac (no GPU) | Linux + NVIDIA GPU |
-|---------|-------------|-------------------|
-| blast, binary routing, bv exec | Yes | Yes |
-| bv shell | Yes | Yes |
-| colabfold (add + sync) | Yes (`--ignore-hardware`) | Yes |
-| colabfold (run) | No (needs GPU + CUDA 12) | Yes |
