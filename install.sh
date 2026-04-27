@@ -1,6 +1,8 @@
 #!/bin/sh
 # Install the latest bv release binary.
 # Supports Linux (x86_64, aarch64) and macOS (x86_64, Apple Silicon).
+# Linux x86_64 uses the statically linked musl build, which works on any
+# kernel regardless of glibc version (HPC nodes, GPU instances, old distros).
 set -eu
 
 REPO="mlberkeley/bv"
@@ -58,7 +60,7 @@ get_target() {
     case "$_os" in
         Linux)
             case "$_arch" in
-                x86_64)  echo "x86_64-unknown-linux-gnu" ;;
+                x86_64)  echo "x86_64-unknown-linux-musl" ;;
                 aarch64) echo "aarch64-unknown-linux-gnu" ;;
                 *)       err "unsupported Linux architecture: $_arch" ;;
             esac

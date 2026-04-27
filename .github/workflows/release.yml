@@ -17,6 +17,9 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            musl: true
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             cross: true
@@ -30,6 +33,9 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+      - name: Install musl toolchain
+        if: matrix.musl
+        run: sudo apt-get install -y musl-tools
       - name: Install cross-compilation linker
         if: matrix.cross
         run: sudo apt-get install -y gcc-aarch64-linux-gnu

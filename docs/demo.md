@@ -60,7 +60,7 @@ Expected:
 The blast tool exposes many binaries. Call one directly by name — no need to spell out the tool id:
 
 ```sh
-bv run blastn --version
+bv run blastn -version
 ```
 
 ```
@@ -68,7 +68,7 @@ blastn: 2.15.0+
 ```
 
 ```sh
-bv run makeblastdb --help | head -3
+bv run makeblastdb -help | head -3
 ```
 
 ```

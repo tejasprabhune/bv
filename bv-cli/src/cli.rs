@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 
 use crate::commands::show::ShowFormat;
 
@@ -78,12 +78,17 @@ pub enum Commands {
     /// Run a tool or binary inside its container.
     ///
     /// bv flags (e.g. --backend) must come before the tool/binary name.
-    /// Everything after the name is forwarded verbatim to the container.
+    /// Everything after the name is forwarded verbatim to the container,
+    /// including flags like --help and --version.
     ///
     ///   bv run blastn -query foo.fa -db nr          (binary routing)
     ///   bv run blast -- blastn -query foo.fa         (name the tool explicitly)
     ///   bv run --backend apptainer blastn -version   (bv flag before name)
+    #[command(disable_help_flag = true, disable_version_flag = true)]
     Run {
+        /// Print help for `bv run` (use before the tool/binary name).
+        #[arg(short = 'h', action = ArgAction::Help, exclusive = true)]
+        help: Option<bool>,
         /// Tool id or exposed binary name.
         tool: String,
         /// Container backend: `docker`, `apptainer`, or `auto` (default).

@@ -61,6 +61,7 @@ async fn main() -> anyhow::Result<()> {
             tool,
             args,
             backend,
+            ..
         } => commands::run::run(tool, args, backend.as_deref()).await,
         Commands::List { binaries } => commands::list::run(*binaries),
         Commands::Exec { command, args } => commands::exec::run(command, args),

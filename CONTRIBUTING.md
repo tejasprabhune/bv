@@ -109,3 +109,4 @@ Pushing the tag triggers the `release.yml` workflow, which builds binaries for a
 - Check the [Actions tab](https://github.com/mlberkeley/bv/actions) to confirm the release workflow passed.
 - Confirm the new version appears at `https://crates.io/crates/biov`.
 - Run `cargo install biov` on a clean machine (or `cargo install biov --version x.y.z`) to sanity-check the published binary.
+- On a Linux x86_64 machine, run `install.sh` and confirm it downloads the musl binary and that `bv --version` works.
