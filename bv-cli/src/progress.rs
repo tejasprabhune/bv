@@ -1,6 +1,8 @@
+use std::time::Duration;
+
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
-use bv_runtime::ProgressReporter;
+use bv_runtime::{PauseGuard, ProgressReporter};
 
 pub struct CliProgressReporter {
     bar: ProgressBar,
@@ -13,7 +15,7 @@ impl CliProgressReporter {
                 .unwrap()
                 .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
-        bar.enable_steady_tick(std::time::Duration::from_millis(80));
+        bar.enable_steady_tick(Duration::from_millis(80));
         Self { bar }
     }
 
@@ -35,5 +37,27 @@ impl ProgressReporter for CliProgressReporter {
         if !message.is_empty() {
             eprintln!("  {message}");
         }
+    }
+
+    fn pause(&self) -> Box<dyn PauseGuard + '_> {
+        self.bar.disable_steady_tick();
+        let saved = self.bar.message();
+        self.bar.set_message(String::new());
+        self.bar.tick();
+        Box::new(SpinnerPauseGuard { bar: &self.bar, saved })
+    }
+}
+
+struct SpinnerPauseGuard<'a> {
+    bar: &'a ProgressBar,
+    saved: String,
+}
+
+impl PauseGuard for SpinnerPauseGuard<'_> {}
+
+impl Drop for SpinnerPauseGuard<'_> {
+    fn drop(&mut self) {
+        self.bar.set_message(std::mem::take(&mut self.saved));
+        self.bar.enable_steady_tick(Duration::from_millis(80));
     }
 }

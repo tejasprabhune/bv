@@ -168,7 +168,19 @@ pub struct RunOutcome {
 pub trait ProgressReporter: Send + Sync {
     fn update(&self, message: &str, current: Option<u64>, total: Option<u64>);
     fn finish(&self, message: &str);
+
+    /// Hide our own spinner/bars while a child process draws to the terminal.
+    /// Implementations should clear their lines until the returned guard is dropped.
+    /// The default is a no-op for reporters that don't draw to a TTY.
+    fn pause(&self) -> Box<dyn PauseGuard + '_> {
+        Box::new(NoopPauseGuard)
+    }
 }
+
+pub trait PauseGuard {}
+
+pub struct NoopPauseGuard;
+impl PauseGuard for NoopPauseGuard {}
 
 pub struct NoopProgress;
 

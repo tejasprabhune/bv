@@ -89,7 +89,10 @@ impl ContainerRuntime for ApptainerRuntime {
         }
 
         progress.update(&format!("Pulling {reference} as SIF"), None, None);
-        pull_as_sif(image, &sif, &self.bin)?;
+        {
+            let _paused = progress.pause();
+            pull_as_sif(image, &sif, &self.bin)?;
+        }
 
         let digest = file_sha256(&sif)
             .map_err(|e| BvError::RuntimeError(format!("failed to hash SIF: {e}")))?;

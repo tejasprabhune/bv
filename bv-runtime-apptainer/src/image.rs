@@ -1,8 +1,11 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::thread;
 
 use bv_core::error::{BvError, Result};
 use bv_runtime::OciRef;
+
+use crate::tail::{make_channel, spawn_reader, RollingTail};
 
 /// Pull an OCI image as a SIF file. Returns the path to the SIF file.
 pub fn pull_as_sif(image: &OciRef, sif_path: &Path, apptainer_bin: &str) -> Result<()> {
@@ -13,20 +16,32 @@ pub fn pull_as_sif(image: &OciRef, sif_path: &Path, apptainer_bin: &str) -> Resu
 
     let uri = registry_uri(image);
 
-    let status = Command::new(apptainer_bin)
+    let mut child = Command::new(apptainer_bin)
         .args([
             "pull",
             "--force",
             sif_path.to_string_lossy().as_ref(),
             &uri,
         ])
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| BvError::RuntimeNotAvailable {
             runtime: "apptainer".into(),
             reason: format!("could not execute `{apptainer_bin}`: {e}"),
         })?;
+
+    let stdout = child.stdout.take().expect("piped stdout");
+    let stderr = child.stderr.take().expect("piped stderr");
+    let (tx, rx) = make_channel();
+    spawn_reader(stdout, tx.clone());
+    spawn_reader(stderr, tx);
+    let tail_handle = thread::spawn(move || RollingTail::new().run(rx, 2));
+
+    let status = child
+        .wait()
+        .map_err(|e| BvError::RuntimeError(format!("failed to wait on apptainer: {e}")))?;
+    let _ = tail_handle.join();
 
     if !status.success() {
         return Err(BvError::RuntimeError(format!(
