@@ -54,8 +54,19 @@ pub fn run(shell_override: Option<&str>) -> anyhow::Result<()> {
             ));
         }
         _ => {
-            let old_ps1 = std::env::var("PS1").unwrap_or_else(|_| "\\$ ".to_string());
-            cmd.env("PS1", format!("(bv:{project_name}) {old_ps1}"));
+            // Use PROMPT_COMMAND so our prefix survives conda/virtualenv PS1 resets.
+            // On every prompt: if the prefix is absent, prepend it.
+            let prefix = format!("(bv:{project_name}) ");
+            let prepend = format!(
+                r#"[ "${{PS1#{prefix}}}" = "$PS1" ] && PS1="{prefix}$PS1""#
+            );
+            let existing_pc = std::env::var("PROMPT_COMMAND").unwrap_or_default();
+            let new_pc = if existing_pc.is_empty() {
+                prepend
+            } else {
+                format!("{prepend}; {existing_pc}")
+            };
+            cmd.env("PROMPT_COMMAND", new_pc);
         }
     }
 

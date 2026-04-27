@@ -10,8 +10,8 @@ use crate::lockfile::Lockfile;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDeclaration {
     pub id: String,
-    /// SemVer version requirement, e.g. `">=0.7,<1"`. Empty means "latest".
-    #[serde(default)]
+    /// SemVer version requirement, e.g. `">=0.7,<1"`. Omitted means "latest".
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub version: String,
 }
 
@@ -56,9 +56,9 @@ pub struct BvToml {
     pub registry: Option<RegistryConfig>,
     #[serde(default)]
     pub tools: Vec<ToolDeclaration>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub data: HashMap<String, DataDeclaration>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "hardware_profile_is_default")]
     pub hardware: HardwareProfile,
     #[serde(default, skip_serializing_if = "runtime_config_is_default")]
     pub runtime: RuntimeConfig,
@@ -70,6 +70,10 @@ pub struct BvToml {
 
 fn runtime_config_is_default(rc: &RuntimeConfig) -> bool {
     rc.backend.is_none()
+}
+
+fn hardware_profile_is_default(h: &HardwareProfile) -> bool {
+    h.gpu.is_none() && h.cpu_cores.is_none() && h.ram_gb.is_none()
 }
 
 impl BvToml {

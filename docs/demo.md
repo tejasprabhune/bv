@@ -92,7 +92,7 @@ Expected:
   Added    colabfold 1.6.0  ...  ~4 GB
 ```
 
-## Part 5: Inspect the binary routing table (15 s)
+## Part 4: Inspect the binary routing table (15 s)
 
 ```sh
 bv list --binaries
@@ -113,7 +113,7 @@ bv list --binaries
 
 Every entry becomes a shim in `.bv/bin/`. Both `bv run <binary>` and `bv exec <binary>` route through this table.
 
-## Part 6: Show the project files (30 s)
+## Part 5: Show the project files (30 s)
 
 ```sh
 cat bv.toml
@@ -166,7 +166,7 @@ colabfold_batch = "colabfold"
 
 Both files go into git. Any collaborator with a GPU can run `bv sync` to reproduce the exact same images by digest, and the binary index is rebuilt from the lock automatically.
 
-## Part 7: Interactive session with bv shell (30 s)
+## Part 6: Interactive session with bv shell (30 s)
 
 ```sh
 bv shell
@@ -192,7 +192,7 @@ $
 
 Exiting returns to the original shell cleanly. No deactivation needed.
 
-## Part 8: Run the fold script with bv exec (90 s)
+## Part 7: Run the fold script with bv exec (90 s)
 
 Scripts and pipelines use `bv exec` to get the same PATH injection without an interactive shell:
 
@@ -225,7 +225,7 @@ Top structure written to: output/trp-cage_unrelaxed_rank_001...pdb
 
 `bv exec` uses `exec(2)` on Unix, so the Python process replaces bv in the process table. Signals, exit codes, and HPC schedulers all see Python directly.
 
-## Part 9: bv list (15 s)
+## Part 8: bv list (15 s)
 
 ```sh
 bv list
@@ -237,7 +237,7 @@ bv list
   colabfold   1.6.0      def456abc789  4.0 GB   2024-01-15 10:01
 ```
 
-## Part 10: Reproduction on another machine (45 s)
+## Part 9: Reproduction on another machine (45 s)
 
 ```sh
 cd /tmp
@@ -257,7 +257,7 @@ Expected:
 
 `bv sync` reads `bv.lock`, pulls by digest, and regenerates `.bv/bin/` so `bv exec` works immediately on the new machine.
 
-## Part 11: CI validation (30 s)
+## Part 10: CI validation (30 s)
 
 ```yaml
 - run: bv sync --frozen      # asserts bv.toml and bv.lock are in sync
