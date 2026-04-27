@@ -6,8 +6,8 @@ pub mod scaffold;
 pub mod source;
 
 use anyhow::Context;
-use owo_colors::{OwoColorize, Stream};
 use bv_runtime::ContainerRuntime as _;
+use owo_colors::{OwoColorize, Stream};
 
 pub struct PublishOpts {
     pub source: String,

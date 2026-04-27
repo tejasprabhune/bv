@@ -57,10 +57,7 @@ pub fn detect(dir: &Path) -> BuildSystem {
 }
 
 /// Return the path to the Dockerfile to use, generating one if needed.
-pub fn ensure_dockerfile(
-    sys: &BuildSystem,
-    dir: &Path,
-) -> anyhow::Result<PathBuf> {
+pub fn ensure_dockerfile(sys: &BuildSystem, dir: &Path) -> anyhow::Result<PathBuf> {
     let existing = dir.join("Dockerfile");
     if matches!(sys, BuildSystem::Dockerfile) {
         return Ok(existing);
@@ -160,4 +157,3 @@ fn makefile_dockerfile() -> String {
      WORKDIR /workspace\n"
         .to_string()
 }
-

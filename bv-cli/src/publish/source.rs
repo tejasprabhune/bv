@@ -28,10 +28,7 @@ impl Source {
                 .map(|(rp, r)| (rp, Some(r.to_string())))
                 .unwrap_or((rest, None));
             let (owner, repo) = repo_part.split_once('/').ok_or_else(|| {
-                anyhow::anyhow!(
-                    "github source must be 'github:owner/repo', got '{}'",
-                    spec
-                )
+                anyhow::anyhow!("github source must be 'github:owner/repo', got '{}'", spec)
             })?;
             Ok(Source::GitHub {
                 owner: owner.to_string(),

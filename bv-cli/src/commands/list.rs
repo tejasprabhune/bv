@@ -1,6 +1,8 @@
 use anyhow::Context;
-use owo_colors::OwoColorize;
+use owo_colors::{OwoColorize, Stream};
 
+use bv_core::cache::CacheLayout;
+use bv_core::manifest::{Manifest, Tier};
 use bv_core::project::BvLock;
 
 use crate::commands::add::{format_size, short_digest};
@@ -21,6 +23,7 @@ pub fn run() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let cache = CacheLayout::new();
     let mut tools: Vec<_> = lockfile.tools.values().collect();
     tools.sort_by(|a, b| a.tool_id.cmp(&b.tool_id));
 
@@ -38,16 +41,19 @@ pub fn run() -> anyhow::Result<()> {
         .max(7);
 
     println!(
-        "  {:<w_tool$}  {:<w_ver$}  {:<12}  {:<8}  {}",
+        "  {:<w_tool$}  {:<w_ver$}  {:<12}  {:<12}  {:<8}  {}",
         "Tool".bold(),
         "Version".bold(),
+        "Tier".bold(),
         "Digest".bold(),
         "Size".bold(),
         "Added".bold(),
     );
-    println!("  {}", "-".repeat(w_tool + w_ver + 12 + 8 + 10 + 8));
+    println!("  {}", "-".repeat(w_tool + w_ver + 12 + 12 + 8 + 10 + 10));
 
     for entry in tools {
+        let tier = read_cached_tier(&cache, &entry.tool_id, &entry.version);
+        let tier_display = format_tier(&tier);
         let digest_short = short_digest(&entry.image_digest);
         let size = entry
             .image_size_bytes
@@ -56,14 +62,38 @@ pub fn run() -> anyhow::Result<()> {
         let date = entry.resolved_at.format("%Y-%m-%d").to_string();
 
         println!(
-            "  {:<w_tool$}  {:<w_ver$}  {:<12}  {:<8}  {}",
+            "  {:<w_tool$}  {:<w_ver$}  {:<12}  {:<12}  {:<8}  {}",
             entry.tool_id,
             entry.version,
+            tier_display,
             digest_short,
             size,
-            date.dimmed(),
+            date.if_supports_color(Stream::Stdout, |t| t.dimmed().to_string()),
         );
     }
 
     Ok(())
+}
+
+fn read_cached_tier(cache: &CacheLayout, tool_id: &str, version: &str) -> Tier {
+    let path = cache.manifest_path(tool_id, version);
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| Manifest::from_toml_str(&s).ok())
+        .map(|m| m.tool.tier)
+        .unwrap_or_default()
+}
+
+fn format_tier(tier: &Tier) -> String {
+    match tier {
+        Tier::Core => "core"
+            .if_supports_color(Stream::Stdout, |t| t.green().to_string())
+            .to_string(),
+        Tier::Community => "community"
+            .if_supports_color(Stream::Stdout, |t| t.yellow().to_string())
+            .to_string(),
+        Tier::Experimental => "experimental"
+            .if_supports_color(Stream::Stdout, |t| t.red().to_string())
+            .to_string(),
+    }
 }

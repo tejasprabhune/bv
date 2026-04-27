@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use bv_core::manifest::{EntrypointSpec, GpuSpec, HardwareSpec, ImageSpec, IoSpec, Manifest, ToolManifest};
+use bv_core::manifest::{
+    EntrypointSpec, GpuSpec, HardwareSpec, ImageSpec, IoSpec, Manifest, Tier, ToolManifest,
+};
 use bv_types::Cardinality;
 use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
 use owo_colors::{OwoColorize, Stream};
@@ -83,6 +85,9 @@ impl ScaffoldResult {
                 description: self.description.clone(),
                 homepage: self.homepage.clone(),
                 license: self.license.clone(),
+                tier: Tier::Community,
+                maintainers: vec![],
+                deprecated: false,
                 image: ImageSpec {
                     backend: "docker".to_string(),
                     reference: image_ref.to_string(),
@@ -215,10 +220,7 @@ pub fn interactive(
 
     let description: String = Input::with_theme(&theme)
         .with_prompt("Description")
-        .default(
-            meta.and_then(|m| m.description.clone())
-                .unwrap_or_default(),
-        )
+        .default(meta.and_then(|m| m.description.clone()).unwrap_or_default())
         .allow_empty(true)
         .interact_text()?;
 
@@ -233,14 +235,14 @@ pub fn interactive(
 
     let license: String = Input::with_theme(&theme)
         .with_prompt("License")
-        .default(
-            meta.and_then(|m| m.license.clone())
-                .unwrap_or_default(),
-        )
+        .default(meta.and_then(|m| m.license.clone()).unwrap_or_default())
         .allow_empty(true)
         .interact_text()?;
 
-    eprintln!("\n  {}", "Hardware".if_supports_color(Stream::Stderr, |t| t.bold().to_string()));
+    eprintln!(
+        "\n  {}",
+        "Hardware".if_supports_color(Stream::Stderr, |t| t.bold().to_string())
+    );
 
     let cpu_cores: u32 = Input::with_theme(&theme)
         .with_prompt("CPU cores")
@@ -265,13 +267,22 @@ pub fn interactive(
     let config_inputs = meta.map(|m| m.inputs.as_slice()).unwrap_or(&[]);
     let config_outputs = meta.map(|m| m.outputs.as_slice()).unwrap_or(&[]);
 
-    eprintln!("\n  {}", "Inputs".if_supports_color(Stream::Stderr, |t| t.bold().to_string()));
+    eprintln!(
+        "\n  {}",
+        "Inputs".if_supports_color(Stream::Stderr, |t| t.bold().to_string())
+    );
     let inputs = collect_io_specs(&theme, config_inputs, "input")?;
 
-    eprintln!("\n  {}", "Outputs".if_supports_color(Stream::Stderr, |t| t.bold().to_string()));
+    eprintln!(
+        "\n  {}",
+        "Outputs".if_supports_color(Stream::Stderr, |t| t.bold().to_string())
+    );
     let outputs = collect_io_specs(&theme, config_outputs, "output")?;
 
-    eprintln!("\n  {}", "Entrypoint".if_supports_color(Stream::Stderr, |t| t.bold().to_string()));
+    eprintln!(
+        "\n  {}",
+        "Entrypoint".if_supports_color(Stream::Stderr, |t| t.bold().to_string())
+    );
 
     let default_cmd = meta
         .and_then(|m| m.entrypoint.command.clone())

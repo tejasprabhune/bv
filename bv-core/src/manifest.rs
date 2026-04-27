@@ -9,6 +9,35 @@ use bv_types::{Cardinality, TypeRef};
 
 use crate::error::{BvError, Result};
 
+/// Quality and governance tier for a tool in the registry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Tier {
+    /// Typed I/O complete, conformance tests pass, from a recognized publisher, actively maintained.
+    Core,
+    /// Typed I/O present (may be partial), basic checks pass.
+    #[default]
+    Community,
+    /// Basic checks pass; may lack typed I/O. Hidden from default search results.
+    Experimental,
+}
+
+impl Tier {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Tier::Core => "core",
+            Tier::Community => "community",
+            Tier::Experimental => "experimental",
+        }
+    }
+}
+
+impl fmt::Display for Tier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Structured CUDA version with ordering (`12.1 < 12.4 < 13.0`).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CudaVersion {
@@ -210,6 +239,15 @@ pub struct ToolManifest {
     pub description: Option<String>,
     pub homepage: Option<String>,
     pub license: Option<String>,
+    /// Governance tier. Defaults to `community` for new submissions.
+    #[serde(default)]
+    pub tier: Tier,
+    /// GitHub handles of maintainers, e.g. `"github:alice"`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub maintainers: Vec<String>,
+    /// Set to `true` when a tool is superseded or no longer maintained.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub deprecated: bool,
     pub image: ImageSpec,
     pub hardware: HardwareSpec,
     #[serde(default)]
@@ -249,8 +287,7 @@ impl fmt::Display for ValidationError {
 
 impl Manifest {
     pub fn from_toml_str(s: &str) -> Result<Self> {
-        let m: Manifest =
-            toml::from_str(s).map_err(|e| BvError::ManifestParse(e.to_string()))?;
+        let m: Manifest = toml::from_str(s).map_err(|e| BvError::ManifestParse(e.to_string()))?;
         m.validate_types()?;
         Ok(m)
     }
@@ -513,9 +550,8 @@ command = "t"
                 if path.extension().is_some_and(|e| e == "toml") {
                     let s = std::fs::read_to_string(&path)
                         .unwrap_or_else(|_| panic!("failed to read {}", path.display()));
-                    Manifest::from_toml_str(&s).unwrap_or_else(|e| {
-                        panic!("{}: {e}", path.display())
-                    });
+                    Manifest::from_toml_str(&s)
+                        .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
                 }
             }
         }

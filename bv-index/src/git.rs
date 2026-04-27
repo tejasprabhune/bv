@@ -48,6 +48,11 @@ impl GitIndex {
         self.local_path.join(".bv-refresh").exists() || self.local_path.join(".git").exists()
     }
 
+    /// Path to the local clone of this registry.
+    pub fn local_path(&self) -> &std::path::Path {
+        &self.local_path
+    }
+
     fn git_refresh(&self) -> Result<()> {
         if self.local_path.exists() {
             let out = Command::new("git")
@@ -190,18 +195,47 @@ impl IndexBackend for GitIndex {
             let id = entry.file_name().to_string_lossy().to_string();
             let versions = self.list_versions(&id).unwrap_or_default();
 
-            let description = versions.last().and_then(|v| {
+            let latest_manifest = versions.last().and_then(|v| {
                 let p = tools_dir.join(&id).join(format!("{v}.toml"));
                 fs::read_to_string(p)
                     .ok()
                     .and_then(|s| Manifest::from_toml_str(&s).ok())
-                    .and_then(|m| m.tool.description)
             });
+
+            let description = latest_manifest
+                .as_ref()
+                .and_then(|m| m.tool.description.clone());
+            let tier = latest_manifest
+                .as_ref()
+                .map(|m| m.tool.tier.clone())
+                .unwrap_or_default();
+            let deprecated = latest_manifest
+                .as_ref()
+                .map(|m| m.tool.deprecated)
+                .unwrap_or(false);
+            let input_types = latest_manifest
+                .as_ref()
+                .map(|m| m.tool.inputs.iter().map(|i| i.r#type.to_string()).collect())
+                .unwrap_or_default();
+            let output_types = latest_manifest
+                .as_ref()
+                .map(|m| {
+                    m.tool
+                        .outputs
+                        .iter()
+                        .map(|o| o.r#type.to_string())
+                        .collect()
+                })
+                .unwrap_or_default();
 
             tools.push(ToolSummary {
                 id,
                 latest_version: versions.last().map(|v| v.to_string()).unwrap_or_default(),
                 description,
+                tier,
+                deprecated,
+                input_types,
+                output_types,
             });
         }
 

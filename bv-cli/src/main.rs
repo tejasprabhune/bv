@@ -29,7 +29,22 @@ async fn main() -> anyhow::Result<()> {
             tools,
             registry,
             ignore_hardware,
-        } => commands::add::run(tools, registry.as_deref(), *ignore_hardware).await,
+            allow_experimental,
+        } => {
+            commands::add::run(
+                tools,
+                registry.as_deref(),
+                *ignore_hardware,
+                *allow_experimental,
+            )
+            .await
+        }
+        Commands::Search {
+            query,
+            tier,
+            registry,
+            limit,
+        } => commands::search::run(query, tier.as_deref(), registry.as_deref(), *limit).await,
         Commands::Remove { tool } => commands::remove::run(tool),
         Commands::Run { tool, args } => commands::run::run(tool, args),
         Commands::List => commands::list::run(),

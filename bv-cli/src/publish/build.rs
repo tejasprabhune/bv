@@ -100,12 +100,7 @@ fn docker_push(image_ref: &str) -> anyhow::Result<()> {
 
 fn resolve_digest(image_ref: &str) -> anyhow::Result<String> {
     let out = Command::new("docker")
-        .args([
-            "inspect",
-            "--format",
-            "{{index .RepoDigests 0}}",
-            image_ref,
-        ])
+        .args(["inspect", "--format", "{{index .RepoDigests 0}}", image_ref])
         .output()
         .context("failed to inspect image")?;
 
@@ -135,8 +130,8 @@ fn manifest_digest(image_ref: &str) -> anyhow::Result<String> {
     }
 
     let text = String::from_utf8_lossy(&out.stdout);
-    let v: serde_json::Value = serde_json::from_str(&text)
-        .context("failed to parse manifest inspect output")?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).context("failed to parse manifest inspect output")?;
 
     let digest = v["Descriptor"]["digest"]
         .as_str()

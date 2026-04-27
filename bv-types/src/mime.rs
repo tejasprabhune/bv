@@ -26,10 +26,7 @@ mod tests {
 
     #[test]
     fn fasta_mime() {
-        assert_eq!(
-            mime_hint("fasta").as_deref(),
-            Some("application/x-fasta")
-        );
+        assert_eq!(mime_hint("fasta").as_deref(), Some("application/x-fasta"));
     }
 
     #[test]

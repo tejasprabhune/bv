@@ -1,5 +1,5 @@
 use anyhow::Context;
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use owo_colors::{OwoColorize, Stream};
 use reqwest::header::{ACCEPT, AUTHORIZATION, USER_AGENT};
 use serde_json::{Value, json};
@@ -140,12 +140,7 @@ pub async fn open_pr(ctx: PrContext<'_>) -> anyhow::Result<String> {
         .to_string();
 
     // Wait for fork to become ready (GitHub may take a few seconds).
-    let fork_sha = wait_for_fork_branch(
-        &gh,
-        &fork_full_name,
-        &default_branch,
-    )
-    .await?;
+    let fork_sha = wait_for_fork_branch(&gh, &fork_full_name, &default_branch).await?;
 
     let branch_name = format!("publish/{}/{}", ctx.tool_name, ctx.version);
 
@@ -175,13 +170,14 @@ pub async fn open_pr(ctx: PrContext<'_>) -> anyhow::Result<String> {
     // Upload manifest file.
     let file_path = format!("tools/{}/{}.toml", ctx.tool_name, ctx.version);
     let content_b64 = STANDARD.encode(ctx.manifest_toml);
-    let commit_msg = format!("Add {name} {version}", name = ctx.tool_name, version = ctx.version);
+    let commit_msg = format!(
+        "Add {name} {version}",
+        name = ctx.tool_name,
+        version = ctx.version
+    );
 
     gh.put(
-        &format!(
-            "{}/repos/{}/contents/{}",
-            GH_API, fork_full_name, file_path
-        ),
+        &format!("{}/repos/{}/contents/{}", GH_API, fork_full_name, file_path),
         json!({
             "message": commit_msg,
             "content": content_b64,

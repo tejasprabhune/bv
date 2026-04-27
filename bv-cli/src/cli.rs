@@ -2,7 +2,6 @@ use clap::{Parser, Subcommand};
 
 use crate::commands::show::ShowFormat;
 
-
 #[derive(Parser)]
 #[command(
     name = "bv",
@@ -31,6 +30,25 @@ pub enum Commands {
         /// Skip hardware requirement checks (useful on dev Macs for GPU tools).
         #[arg(long)]
         ignore_hardware: bool,
+        /// Allow adding tools that are marked `experimental` in the registry.
+        #[arg(long)]
+        allow_experimental: bool,
+    },
+
+    /// Search the registry for tools.
+    Search {
+        /// Search query (matches tool id, description, and I/O types).
+        query: String,
+        /// Tier filter: `all`, `core`, `community`, or `experimental`.
+        /// Default shows core and community tools.
+        #[arg(long)]
+        tier: Option<String>,
+        /// Registry URL or local path. Overrides BV_REGISTRY env var.
+        #[arg(long, env = "BV_REGISTRY")]
+        registry: Option<String>,
+        /// Maximum number of results to show.
+        #[arg(long, default_value = "20")]
+        limit: usize,
     },
 
     /// Remove a tool from bv.toml and bv.lock.

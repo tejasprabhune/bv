@@ -8,6 +8,10 @@ pub struct ToolSummary {
     pub id: String,
     pub latest_version: String,
     pub description: Option<String>,
+    pub tier: bv_core::manifest::Tier,
+    pub deprecated: bool,
+    pub input_types: Vec<String>,
+    pub output_types: Vec<String>,
 }
 
 pub trait IndexBackend {

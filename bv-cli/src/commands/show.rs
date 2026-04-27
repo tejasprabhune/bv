@@ -166,7 +166,10 @@ fn to_json_io(spec: &IoSpec) -> JsonIo<'_> {
         r#type: spec.r#type.to_string(),
         cardinality: spec.cardinality.to_string(),
         description: spec.description.as_deref(),
-        mount: spec.mount.as_ref().map(|p| p.to_string_lossy().into_owned()),
+        mount: spec
+            .mount
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned()),
     }
 }
 
@@ -217,7 +220,10 @@ fn print_mcp(tool: &ToolManifest) -> anyhow::Result<()> {
         prop.insert("description".into(), desc_text.into());
         properties.insert(spec.name.clone(), prop.into());
 
-        if matches!(spec.cardinality, bv_types::Cardinality::One | bv_types::Cardinality::Many) {
+        if matches!(
+            spec.cardinality,
+            bv_types::Cardinality::One | bv_types::Cardinality::Many
+        ) {
             required.push(serde_json::Value::String(spec.name.clone()));
         }
     }
@@ -251,7 +257,10 @@ fn print_json_schema(tool: &ToolManifest) -> anyhow::Result<()> {
         prop.insert("x-bv-type".into(), spec.r#type.to_string().into());
         properties.insert(spec.name.clone(), prop.into());
 
-        if matches!(spec.cardinality, bv_types::Cardinality::One | bv_types::Cardinality::Many) {
+        if matches!(
+            spec.cardinality,
+            bv_types::Cardinality::One | bv_types::Cardinality::Many
+        ) {
             required.push(serde_json::Value::String(spec.name.clone()));
         }
     }

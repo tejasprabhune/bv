@@ -18,9 +18,7 @@ pub fn resolve_github_token(flag: Option<&str>, non_interactive: bool) -> anyhow
              Set GITHUB_TOKEN, pass --github-token, or run: gh auth login"
         );
     }
-    let token = prompt_token(
-        "GitHub personal access token (needs repo + write:packages scopes)",
-    )?;
+    let token = prompt_token("GitHub personal access token (needs repo + write:packages scopes)")?;
     if dialoguer::Confirm::new()
         .with_prompt("Save token to OS keychain for future use?")
         .default(true)

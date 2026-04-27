@@ -10,7 +10,7 @@ use semver::{Version, VersionReq};
 use bv_core::cache::CacheLayout;
 use bv_core::hardware::DetectedHardware;
 use bv_core::lockfile::Lockfile;
-use bv_core::manifest::Manifest;
+use bv_core::manifest::{Manifest, Tier};
 use bv_core::project::{BvLock, BvToml, ProjectMeta, RegistryConfig, ToolDeclaration};
 use bv_index::IndexBackend as _;
 use bv_runtime::{ContainerRuntime, DockerRuntime, OciRef};
@@ -23,6 +23,7 @@ pub async fn run(
     tool_specs: &[String],
     registry_flag: Option<&str>,
     ignore_hardware: bool,
+    allow_experimental: bool,
 ) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let bv_toml_path = cwd.join("bv.toml");
@@ -93,6 +94,23 @@ pub async fn run(
         manifest.validate().map_err(|e| {
             anyhow::anyhow!("manifest validation errors for '{}': {:?}", tool_id, e)
         })?;
+
+        if manifest.tool.tier == Tier::Experimental && !allow_experimental {
+            anyhow::bail!(
+                "'{}' is marked experimental in the registry.\n  \
+                 Experimental tools may lack typed I/O or come from unverified sources.\n  \
+                 Add --allow-experimental to proceed anyway.",
+                tool_id
+            );
+        }
+
+        if manifest.tool.deprecated {
+            eprintln!(
+                "  {} '{}' is deprecated; consider looking for a maintained alternative",
+                "warning:".if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string()),
+                tool_id
+            );
+        }
 
         if let Some(existing) = lockfile.tools.get(&tool_id)
             && existing.version == manifest.tool.version
