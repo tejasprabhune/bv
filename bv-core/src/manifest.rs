@@ -586,6 +586,9 @@ command = "t"
         let registry = concat!(env!("CARGO_MANIFEST_DIR"), "/../../bv-registry/tools");
         for entry in std::fs::read_dir(registry).unwrap() {
             let tool_dir = entry.unwrap().path();
+            if !tool_dir.is_dir() {
+                continue;
+            }
             for version_entry in std::fs::read_dir(&tool_dir).unwrap() {
                 let path = version_entry.unwrap().path();
                 if path.extension().is_some_and(|e| e == "toml") {
