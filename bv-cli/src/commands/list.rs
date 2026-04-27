@@ -91,11 +91,7 @@ fn run_binaries(lockfile: &bv_core::lockfile::Lockfile) -> anyhow::Result<()> {
 
     let w_bin = pairs.iter().map(|(b, _)| b.len()).max().unwrap_or(6).max(6);
 
-    println!(
-        "  {:<w_bin$}  {}",
-        "Binary".bold(),
-        "Tool".bold(),
-    );
+    println!("  {:<w_bin$}  {}", "Binary".bold(), "Tool".bold(),);
     println!("  {}", "-".repeat(w_bin + 20));
 
     for (binary, tool_id) in &pairs {

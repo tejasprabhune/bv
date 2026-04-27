@@ -20,9 +20,7 @@ pub fn run(command: &str, args: &[String]) -> anyhow::Result<()> {
                  the installed tools may not declare [tool.binaries] yet"
             );
         }
-        anyhow::bail!(
-            "shim directory not found\n  run `bv sync` to regenerate shims"
-        );
+        anyhow::bail!("shim directory not found\n  run `bv sync` to regenerate shims");
     }
 
     let path_var = std::env::var_os("PATH").unwrap_or_default();

@@ -58,7 +58,10 @@ fn ensure_gitignore(project_dir: &Path) -> anyhow::Result<()> {
 
     if gitignore_path.exists() {
         let content = fs::read_to_string(&gitignore_path)?;
-        if content.lines().any(|l| l.trim() == entry || l.trim() == ".bv") {
+        if content
+            .lines()
+            .any(|l| l.trim() == entry || l.trim() == ".bv")
+        {
             return Ok(());
         }
         let mut file = fs::OpenOptions::new().append(true).open(&gitignore_path)?;
