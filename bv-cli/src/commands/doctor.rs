@@ -225,7 +225,6 @@ fn kv_dim(key: &str, value: &str) {
     );
 }
 
-
 // Filesystem helpers
 
 fn dir_size_bytes(path: &Path) -> u64 {
