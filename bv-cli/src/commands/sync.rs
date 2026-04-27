@@ -80,12 +80,14 @@ pub async fn run(
             continue;
         }
 
-        // Pull by pinned digest for reproducibility.
+        // Pull by pinned digest for reproducibility. The tag is kept too so
+        // backends whose `image_digest` is not a registry manifest digest
+        // (apptainer stores the SIF's file sha256) have a valid reference;
+        // they verify the digest after the pull instead.
         let mut oci_ref: OciRef = entry
             .image_reference
             .parse()
             .map_err(|e| anyhow::anyhow!("invalid image_reference in lockfile: {e}"))?;
-        oci_ref.tag = None;
         oci_ref.digest = Some(entry.image_digest.clone());
 
         eprintln!(
