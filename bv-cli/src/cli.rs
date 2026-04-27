@@ -156,11 +156,15 @@ pub enum Commands {
     Cache(CacheCommands),
 
     /// Run a command with bv-managed binaries on PATH (for scripts and CI).
+    #[command(disable_help_flag = true, disable_version_flag = true)]
     Exec {
+        /// Print help for `bv exec`.
+        #[arg(short = 'h', action = ArgAction::Help, exclusive = true)]
+        help: Option<bool>,
         /// Command to run.
         command: String,
         /// Arguments forwarded to the command.
-        #[arg(last = true)]
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
 

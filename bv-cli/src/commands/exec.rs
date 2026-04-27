@@ -3,6 +3,12 @@ use anyhow::Context;
 use bv_core::project::BvLock;
 
 pub fn run(command: &str, args: &[String]) -> anyhow::Result<()> {
+    let args: &[String] = args
+        .first()
+        .filter(|a| a.as_str() == "--")
+        .map(|_| &args[1..])
+        .unwrap_or(args);
+
     let cwd = std::env::current_dir()?;
     let bv_lock_path = cwd.join("bv.lock");
 
