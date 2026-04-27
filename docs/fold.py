@@ -2,10 +2,12 @@
 Fold the Trp-cage miniprotein with ColabFold via bv.
 
 Usage:
-    python3 fold.py
+    bv exec python3 fold.py   (recommended: bv puts colabfold_batch on PATH)
+    python3 fold.py           (also works if run from inside bv shell)
 
 Requires:
     bv add colabfold   (done once per machine)
+    bv sync            (ensures .bv/bin/ shims exist)
 """
 
 import json
@@ -28,18 +30,26 @@ def write_fasta() -> None:
 
 def run_colabfold() -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
-    cmd = [
-        "bv", "run", "colabfold", "--",
+    # colabfold_batch is available on PATH when run via `bv exec` or inside `bv shell`.
+    # Falls back to `bv run` for direct invocation outside those contexts.
+    cmd = _colabfold_cmd() + [
         "--num-recycle", "3",
         f"/workspace/{FASTA_PATH}",
         f"/workspace/{OUTPUT_DIR}",
     ]
-    print(f"Running ColabFold on trp-cage (20 aa)...")
+    print("Running ColabFold on trp-cage (20 aa)...")
     print(f"Output directory: {OUTPUT_DIR}/\n")
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
         print("ColabFold run failed.", file=sys.stderr)
         sys.exit(result.returncode)
+
+
+def _colabfold_cmd() -> list[str]:
+    import shutil
+    if shutil.which("colabfold_batch"):
+        return ["colabfold_batch"]
+    return ["bv", "run", "colabfold_batch"]
 
 
 def print_results() -> None:

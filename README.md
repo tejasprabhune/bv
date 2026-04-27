@@ -2,12 +2,13 @@
 
 **A `uv`-style tool manager for bioinformatics.**
 
-`bv` installs bioinformatics tools as containers, pins them to exact digests in a lockfile, and makes any analysis environment reproducible with a single `bv sync`. Works with Docker on laptops and Apptainer/Singularity on HPC clusters -- the same manifest, the same lockfile, either backend.
+`bv` installs bioinformatics tools as containers, pins them to exact digests in a lockfile, and makes any analysis environment reproducible with a single `bv sync`. Works with Docker on laptops and Apptainer/Singularity on HPC clusters; the same manifest, the same lockfile, either backend.
 
 ```sh
 bv add blast hmmer mmseqs2      # resolve from registry, pull images
-bv run blast -- blastn -version
-bv sync                          # reproduce the exact environment anywhere
+bv run blastn -version          # call any binary by name directly
+bv exec snakemake --cores 4     # run scripts with all tools on PATH
+bv sync                         # reproduce the exact environment anywhere
 ```
 
 ---
@@ -35,8 +36,8 @@ bv doctor                    # check environment and available runtimes
 
 bv add blast hmmer           # pull tools, write bv.toml and bv.lock
 
-bv run blast -- blastn -version
-bv run hmmer -- hmmbuild -h
+bv run blastn -version       # call binaries directly by name
+bv run hmmbuild -h
 
 bv list                      # show installed tools with tier and digest
 
@@ -56,24 +57,24 @@ curl -sL "https://rest.uniprot.org/uniprotkb/P04637.fasta" -o p53.fasta
 # Add both tools at once
 bv add blast hmmer
 
-# Step 1 -- build a BLAST protein database
-bv run blast -- makeblastdb \
+# Step 1: build a BLAST protein database
+bv run makeblastdb \
     -in /workspace/p53.fasta \
     -dbtype prot \
     -out /workspace/p53_db
 
-# Step 2 -- BLAST search (tabular output)
-bv run blast -- blastp \
+# Step 2: BLAST search (tabular output)
+bv run blastp \
     -query /workspace/p53.fasta \
     -db    /workspace/p53_db \
     -out   /workspace/blast_hits.tsv \
     -outfmt 6
 
-# Step 3 -- build an HMM profile from the BLAST hits
-bv run hmmer -- hmmbuild /workspace/p53.hmm /workspace/p53.fasta
+# Step 3: build an HMM profile from the BLAST hits
+bv run hmmbuild /workspace/p53.hmm /workspace/p53.fasta
 
-# Step 4 -- search with the HMM profile
-bv run hmmer -- hmmsearch \
+# Step 4: search with the HMM profile
+bv run hmmsearch \
     /workspace/p53.hmm \
     /workspace/p53.fasta \
     > /workspace/hmmer_hits.txt
@@ -81,12 +82,15 @@ bv run hmmer -- hmmsearch \
 cat blast_hits.tsv
 ```
 
+`bv run <binary>` looks up the binary name in the project's binary index and routes to the right container automatically. No need to specify the tool name.
+
 Your project directory:
 
 ```
 homology-project/
   bv.toml          # declares blast + hmmer
-  bv.lock          # pinned image digests
+  bv.lock          # pinned image digests and binary index
+  .bv/bin/         # generated shims (gitignored)
   p53.fasta
   p53_db.*         # BLAST database files
   blast_hits.tsv
@@ -102,8 +106,87 @@ git commit -m "pin analysis environment"
 
 # On another machine:
 git clone <your-repo> && cd homology-project
-bv sync          # pulls exact pinned images by digest
-bv run blast -- blastp -query /workspace/p53.fasta ...
+bv sync          # pulls exact pinned images by digest, regenerates shims
+bv run blastp -query /workspace/p53.fasta ...
+```
+
+---
+
+## Using tools from scripts and pipelines
+
+### bv exec
+
+`bv exec` runs any command with all project binaries prepended to `PATH`. It is the right form for scripts, Makefiles, and CI.
+
+```sh
+bv exec python3 pipeline.py
+bv exec snakemake --cores 4
+bv exec -- bash -c "blastn -query foo.fa | sort -k11 -n"
+```
+
+On Unix, `bv exec` replaces itself with the child process via `exec(2)`. Signals, exit codes, and HPC schedulers see the child directly; there is no extra layer in `ps`.
+
+Makefile:
+
+```make
+results.tsv: query.fa db.phr
+	bv exec blastn -query $< -db db -out $@ -outfmt 6
+```
+
+Snakemake:
+
+```python
+rule align:
+    input:  "reads.fastq.gz"
+    output: "aligned.bam"
+    shell:
+        "bv exec bwa mem -t {threads} ref.fa {input} "
+        "| bv exec samtools sort -o {output}"
+```
+
+### bv shell
+
+`bv shell` starts an interactive subshell with all project binaries on PATH. The prompt changes to show the active project.
+
+```sh
+bv shell
+(bv:homology-project) $ blastn -query p53.fasta -db p53_db -out hits.tsv -outfmt 6
+(bv:homology-project) $ hmmsearch p53.hmm p53.fasta > hmmer_hits.txt
+(bv:homology-project) $ exit
+$
+```
+
+Exiting the subshell returns to the original environment cleanly. `BV_ACTIVE` is set to the project name while inside, so scripts can detect activation.
+
+```sh
+bv shell --shell zsh    # explicit shell choice
+```
+
+### Binary routing
+
+Every binary a tool exposes is listed in `bv.lock` and gets a shim in `.bv/bin/`. `bv run <binary>` and `bv exec <binary>` both route through this index.
+
+```sh
+bv list --binaries
+```
+
+```
+  Binary        Tool
+  ----------------------------
+  blastn        blast 2.15.0
+  blastp        blast 2.15.0
+  makeblastdb   blast 2.15.0
+  tblastn       blast 2.15.0
+  hmmbuild      hmmer 3.3.2
+  hmmsearch     hmmer 3.3.2
+  hmmscan       hmmer 3.3.2
+```
+
+If two tools expose the same binary name, `bv lock` fails with a clear error. Resolve it in `bv.toml`:
+
+```toml
+[binary_overrides]
+samtools = "samtools"   # this tool wins when multiple tools expose samtools
 ```
 
 ---
@@ -174,7 +257,7 @@ Example MCP output:
 bv doctor                         # shows which runtimes are available
 
 bv add blast --backend apptainer  # pull as a SIF file instead of a Docker image
-bv run blast --backend apptainer -- blastn -version
+bv run blastn --backend apptainer -version
 bv sync       --backend apptainer
 ```
 
@@ -189,7 +272,7 @@ Or use the `BV_BACKEND` environment variable:
 
 ```sh
 export BV_BACKEND=apptainer
-bv add blast && bv run blast -- blastn -version
+bv add blast && bv run blastn -version
 ```
 
 GPU support works on both backends:
@@ -205,10 +288,10 @@ The manifest declares the GPU requirement; the runtime handles the flag automati
 
 ## Conformance testing
 
-Every tool can carry a `[tool.test]` block. The `bv conformance` command runs the tool with canonical tiny inputs and verifies the outputs match their declared types.
+Every tool can carry a `[tool.test]` block. The `bv conformance` command runs the tool with canonical tiny inputs and verifies the outputs match their declared types. It also checks that every binary in `[tool.binaries]` responds to `--help` or `--version`.
 
 ```sh
-bv conformance blast            # pull + run + verify outputs
+bv conformance blast            # pull + run + verify outputs and binaries
 bv conformance hmmer --backend apptainer
 ```
 
@@ -281,7 +364,7 @@ jobs:
 
 ## Auto-ingestion from Bioconda: `bv-ingest`
 
-`bv-ingest` scrapes Bioconda recipes and auto-generates draft manifests for any tool that has a BioContainers image.
+`bv-ingest` scrapes Bioconda recipes and auto-generates draft manifests for any tool that has a BioContainers image. Binary names are extracted from recipe `test.commands` and `build.run_exports` and written into `[tool.binaries]` automatically.
 
 ```sh
 # Ingest 10 tools from Bioconda (dry run)
@@ -336,7 +419,7 @@ version = "=2.15.0"
 id = "hmmer"
 ```
 
-**`bv.lock`** pins the exact state:
+**`bv.lock`** pins the exact state, including the binary routing index:
 
 ```toml
 version = 1
@@ -348,9 +431,25 @@ image_reference = "ncbi/blast:2.15.0"
 image_digest = "sha256:abc123..."
 manifest_sha256 = "sha256:def456..."
 resolved_at = "2024-01-15T10:00:00Z"
+binaries = ["blastn", "blastp", "makeblastdb", "tblastn", ...]
+
+[tools.hmmer]
+tool_id = "hmmer"
+version = "3.3.2"
+image_reference = "quay.io/biocontainers/hmmer:3.3.2--h87f3376_2"
+image_digest = "sha256:789abc..."
+binaries = ["hmmbuild", "hmmsearch", "hmmscan", "jackhmmer", ...]
+
+[binary_index]
+blastn = "blast"
+blastp = "blast"
+makeblastdb = "blast"
+hmmbuild = "hmmer"
+hmmsearch = "hmmer"
+hmmscan = "hmmer"
 ```
 
-Both files belong in version control. `bv run` always uses the pinned digest.
+Both files belong in version control. `bv run` always uses the pinned digest. `.bv/` (the generated shim directory) is gitignored automatically.
 
 ---
 
@@ -359,6 +458,7 @@ Both files belong in version control. `bv run` always uses the pinned digest.
 ```yaml
 - run: bv sync --frozen    # fails if bv.toml and bv.lock are inconsistent
 - run: bv lock --check     # fails if bv.lock would change
+- run: bv exec snakemake --cores 4
 ```
 
 ---
@@ -369,13 +469,16 @@ Both files belong in version control. `bv run` always uses the pinned digest.
 |---------|-------------|
 | `bv add <tool>[@ver]` | Add tools and pull their images |
 | `bv remove <tool>` | Remove a tool |
-| `bv run <tool> -- <args>` | Run a tool in its container |
+| `bv run <binary|tool> [-- <args>]` | Run a binary or tool in its container |
+| `bv exec <command>` | Run a command with all project binaries on PATH |
+| `bv shell [--shell <sh>]` | Start an interactive subshell with binaries on PATH |
 | `bv list` | Show installed tools with tier, digest, and size |
+| `bv list --binaries` | Show the binary routing table |
 | `bv search <query>` | Search the registry (text, type, tier filters) |
 | `bv show <tool>` | Show typed I/O schema and metadata |
 | `bv info <tool>` | Show lockfile-level detail |
 | `bv lock [--check]` | Regenerate bv.lock; `--check` exits 1 if anything changed |
-| `bv sync [--frozen]` | Pull all locked images |
+| `bv sync [--frozen]` | Pull all locked images and regenerate shims |
 | `bv conformance <tool>` | Run the conformance test suite for a tool |
 | `bv publish <source>` | Build and publish a tool to bv-registry |
 | `bv data fetch <dataset>` | Download a reference dataset |
@@ -439,6 +542,12 @@ description = "Tabular alignment results (outfmt 6)"
 [tool.entrypoint]
 command = "blastn"
 args_template = "-query {query} -db {db} -out {output} -num_threads {cpu_cores}"
+
+[tool.binaries]
+exposed = [
+  "blastn", "blastp", "tblastn", "tblastx",
+  "makeblastdb", "blastdbcmd", "blastdb_aliastool",
+]
 
 [tool.test]
 inputs = { query = "test://fasta-nucleotide" }
