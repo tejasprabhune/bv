@@ -198,7 +198,7 @@ samtools = "samtools"   # this tool wins when multiple tools expose samtools
 bv search blast
 bv search fasta                # find tools that accept FASTA input
 bv search --tier core          # only core-tier tools
-bv search alphafold --tier all # include experimental tier
+bv search colabfold --tier all # include experimental tier
 
 # Browse the full registry with filters at:
 # https://mlberkeley.github.io/bv-registry/
@@ -389,9 +389,9 @@ The nightly GitHub Actions workflow runs automatically and opens PRs to `bv-regi
 For tools that need large reference databases:
 
 ```sh
-bv add alphafold          # bv add prints what data the tool requires
+bv add kraken2            # bv add prints what data the tool requires
 bv data fetch pdbaa --yes # download (sizes range from MB to TB)
-bv run alphafold ...      # bv run auto-mounts the data
+bv run kraken2 ...        # bv run auto-mounts the data
 bv data list              # see what is cached locally
 ```
 
@@ -497,7 +497,7 @@ bv-registry/
     blast/2.14.0.toml   2.15.0.toml
     hmmer/3.3.2.toml
     mmseqs2/17.0.0.toml
-    alphafold/2.3.2.toml
+    colabfold/1.6.0.toml
     proteinmpnn/1.0.1.toml
   data/
     pdbaa/2024_01.toml

@@ -78,34 +78,7 @@ USAGE
 
 `bv run` looked up `blastn` and `makeblastdb` in `bv.lock`'s binary index and routed both to the blast container. You can also name the tool explicitly: `bv run blast -- blastn ...`
 
-## Part 3: Try AlphaFold — hit the reference data wall (30 s)
-
-```sh
-bv add alphafold --ignore-hardware
-```
-
-Expected:
-
-```
-  Updating index  done
-  Pulling  alphafold@2.3.2
-  Added    alphafold 2.3.2  ...
-
-  alphafold requires the following reference datasets:
-    uniref90@2023-01  68.0 GB  (required)
-    bfd@1.0           1.7 TB   (required)
-    pdb70@2023-01     50.0 GB  (optional)
-
-  Fetch with: bv data fetch uniref90 bfd pdb70
-```
-
-1.7 TB of required reference data is not practical for a demo. Remove it and reach for ColabFold, which queries the MMseqs2 web API for alignment and needs no local databases.
-
-```sh
-bv remove alphafold
-```
-
-## Part 4: Add ColabFold (60 s)
+## Part 3: Add ColabFold (60 s)
 
 ```sh
 bv add colabfold
@@ -115,8 +88,8 @@ Expected:
 
 ```
   Updating index  done
-  Pulling  colabfold@1.6.1
-  Added    colabfold 1.6.1  ...  ~4 GB
+  Pulling  colabfold@1.6.0
+  Added    colabfold 1.6.0  ...  ~4 GB
 ```
 
 ## Part 5: Inspect the binary routing table (15 s)
@@ -135,7 +108,7 @@ bv list --binaries
   tblastn          blast 2.15.0
   tblastx          blast 2.15.0
   ...
-  colabfold_batch  colabfold 1.6.1
+  colabfold_batch  colabfold 1.6.0
 ```
 
 Every entry becomes a shim in `.bv/bin/`. Both `bv run <binary>` and `bv exec <binary>` route through this table.
@@ -159,7 +132,7 @@ version = "=2.15.0"
 
 [[tools]]
 id = "colabfold"
-version = "=1.6.1"
+version = "=1.6.0"
 ```
 
 ```sh
@@ -178,8 +151,8 @@ binaries = ["blastn", "blastp", "makeblastdb", ...]
 
 [tools.colabfold]
 tool_id = "colabfold"
-version = "1.6.1"
-image_reference = "ghcr.io/sokrypton/colabfold:1.6.1-cuda12"
+version = "1.6.0"
+image_reference = "ghcr.io/sokrypton/colabfold:1.6.0-cuda12"
 image_digest = "sha256:def456..."
 binaries = ["colabfold_batch"]
 
@@ -261,7 +234,7 @@ bv list
 ```
   tool        version    digest        size     added
   blast       2.15.0     abc123def456  38 MB    2024-01-15 10:00
-  colabfold   1.6.1      def456abc789  4.0 GB   2024-01-15 10:01
+  colabfold   1.6.0      def456abc789  4.0 GB   2024-01-15 10:01
 ```
 
 ## Part 10: Reproduction on another machine (45 s)
@@ -278,8 +251,8 @@ Expected:
 ```
   Pulling  blast 2.15.0       ncbi/blast@sha256:abc123...
   Synced   blast 2.15.0       abc123
-  Pulling  colabfold 1.6.1    ghcr.io/sokrypton/colabfold@sha256:def456...
-  Synced   colabfold 1.6.1    def456
+  Pulling  colabfold 1.6.0    ghcr.io/sokrypton/colabfold@sha256:def456...
+  Synced   colabfold 1.6.0    def456
 ```
 
 `bv sync` reads `bv.lock`, pulls by digest, and regenerates `.bv/bin/` so `bv exec` works immediately on the new machine.
@@ -302,8 +275,6 @@ Expected:
 |------|----------|
 | `bv doctor` | < 1 s |
 | `bv add blast` | 30-60 s (Docker pull) |
-| `bv add alphafold --ignore-hardware` | 60-300 s (8 GB image) |
-| `bv remove alphafold` | < 1 s |
 | `bv add colabfold` | 2-5 min (4 GB image) |
 | `bv list --binaries` | < 1 s |
 | `bv shell` + exit | < 1 s |
