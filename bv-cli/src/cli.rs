@@ -203,6 +203,11 @@ pub enum Commands {
         /// Target registry repository in `owner/repo` form.
         #[arg(long, default_value = "mlberkeley/bv-registry")]
         registry_repo: String,
+        /// GHCR namespace to push the image into. Defaults to your own GitHub username
+        /// (e.g. `ghcr.io/<you>/<tool>:<ver>`), so you don't need org permissions to publish.
+        /// Override with e.g. `--push-to bv-registry` if you have write access to that org.
+        #[arg(long)]
+        push_to: Option<String>,
         /// Docker build platform.
         #[arg(long, default_value = "amd64")]
         platform: String,

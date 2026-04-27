@@ -90,6 +90,7 @@ async fn main() -> anyhow::Result<()> {
             github_token,
             ghcr_token,
             registry_repo,
+            push_to,
             platform,
         } => {
             publish::run(publish::PublishOpts {
@@ -102,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
                 github_token: github_token.clone(),
                 ghcr_token: ghcr_token.clone(),
                 registry_repo: registry_repo.clone(),
+                push_to: push_to.clone(),
                 platform: platform.clone(),
             })
             .await

@@ -19,6 +19,9 @@ pub struct PublishOpts {
     pub github_token: Option<String>,
     pub ghcr_token: Option<String>,
     pub registry_repo: String,
+    /// GHCR namespace to push to. `None` defaults to the authenticated GitHub user's
+    /// own namespace, so third-party publishers don't need org write-access.
+    pub push_to: Option<String>,
     pub platform: String,
 }
 
@@ -68,14 +71,15 @@ pub async fn run(opts: PublishOpts) -> anyhow::Result<()> {
     // Ensure a Dockerfile exists (generating one if needed).
     let dockerfile = detect::ensure_dockerfile(&build_sys, &fetched.dir)?;
 
-    let image_ref = format!(
-        "ghcr.io/bv-registry/{}:{}",
-        scaffold_result.name, scaffold_result.version
-    );
-
     eprintln!();
 
+    // Dry run: print the manifest with a placeholder ref and stop. No auth needed.
     if opts.no_push && opts.no_pr {
+        let placeholder = opts.push_to.as_deref().unwrap_or("<your-github-username>");
+        let image_ref = format!(
+            "ghcr.io/{}/{}:{}",
+            placeholder, scaffold_result.name, scaffold_result.version
+        );
         let manifest_toml = scaffold_result.to_manifest_toml(&image_ref, "")?;
         eprintln!("  {}", bold("Manifest (draft, no push):"));
         for line in manifest_toml.lines() {
@@ -89,8 +93,17 @@ pub async fn run(opts: PublishOpts) -> anyhow::Result<()> {
         auth::resolve_github_token(opts.github_token.as_deref(), opts.non_interactive)?;
     let ghcr_token = auth::resolve_ghcr_token(opts.ghcr_token.as_deref(), &github_token);
 
-    // Get GitHub username for docker login.
+    // Get GitHub username for docker login (and to use as the default GHCR namespace).
     let github_username = pr::get_github_username(&github_token).await?;
+
+    // By default, push to the authenticated user's own GHCR namespace. This means
+    // third-party publishers don't need write access to any shared org: their PR
+    // proposes a manifest pointing at `ghcr.io/<them>/<tool>`. Override with --push-to.
+    let namespace = opts.push_to.as_deref().unwrap_or(&github_username);
+    let image_ref = format!(
+        "ghcr.io/{}/{}:{}",
+        namespace, scaffold_result.name, scaffold_result.version
+    );
 
     // Build and push.
     let digest = if opts.no_push {
