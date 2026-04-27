@@ -232,6 +232,15 @@ pub struct EntrypointSpec {
     pub env: HashMap<String, String>,
 }
 
+/// Binary names that the tool's container exposes on PATH.
+///
+/// Omitting this block defaults to `exposed = [entrypoint.command]` for
+/// single-binary tools that do not need to declare anything extra.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BinariesSpec {
+    pub exposed: Vec<String>,
+}
+
 /// Canonical inputs and expected outputs used by the conformance test runner.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestSpec {
@@ -294,6 +303,10 @@ pub struct ToolManifest {
     #[serde(default)]
     pub outputs: Vec<IoSpec>,
     pub entrypoint: EntrypointSpec,
+    /// Binary names this tool exposes on PATH inside its container.
+    /// Omit for single-binary tools; defaults to `[entrypoint.command]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binaries: Option<BinariesSpec>,
     /// Conformance test block; used by `bv conformance check`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub test: Option<TestSpec>,
@@ -305,6 +318,24 @@ pub struct ToolManifest {
 impl ToolManifest {
     pub fn has_typed_io(&self) -> bool {
         !self.inputs.is_empty() || !self.outputs.is_empty()
+    }
+
+    /// Returns the effective list of binary names this tool exposes.
+    ///
+    /// When no `[tool.binaries]` block is present, defaults to
+    /// `[entrypoint.command]` (the basename component for path-style commands).
+    pub fn effective_binaries(&self) -> Vec<&str> {
+        match &self.binaries {
+            Some(b) => b.exposed.iter().map(|s| s.as_str()).collect(),
+            None => {
+                let cmd = &self.entrypoint.command;
+                let name = cmd
+                    .rfind('/')
+                    .map(|i| &cmd[i + 1..])
+                    .unwrap_or(cmd.as_str());
+                vec![name]
+            }
+        }
     }
 }
 
@@ -411,6 +442,30 @@ impl Manifest {
                     field: format!("tool.outputs[{}].mount", spec.name),
                     message: "must be an absolute path".into(),
                 });
+            }
+        }
+
+        if let Some(binaries) = &t.binaries {
+            let mut seen = std::collections::HashSet::new();
+            for name in &binaries.exposed {
+                if !seen.insert(name.as_str()) {
+                    errors.push(ValidationError {
+                        field: "tool.binaries.exposed".into(),
+                        message: format!("duplicate binary name '{name}'"),
+                    });
+                }
+            }
+            if !binaries.exposed.is_empty() {
+                let cmd = &t.entrypoint.command;
+                let basename = cmd.rfind('/').map(|i| &cmd[i + 1..]).unwrap_or(cmd);
+                if !binaries.exposed.iter().any(|b| b == basename) {
+                    errors.push(ValidationError {
+                        field: "tool.binaries.exposed".into(),
+                        message: format!(
+                            "entrypoint command '{basename}' must be listed in exposed"
+                        ),
+                    });
+                }
             }
         }
 

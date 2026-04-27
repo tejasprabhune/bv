@@ -88,7 +88,11 @@ pub enum Commands {
     },
 
     /// List tools installed in this project.
-    List,
+    List {
+        /// Show binary routing table instead of tool list.
+        #[arg(long)]
+        binaries: bool,
+    },
 
     /// Show typed I/O schema and metadata for a tool.
     Show {
@@ -138,6 +142,22 @@ pub enum Commands {
     /// Local cache management.
     #[command(subcommand)]
     Cache(CacheCommands),
+
+    /// Run a command with bv-managed binaries on PATH (for scripts and CI).
+    Exec {
+        /// Command to run.
+        command: String,
+        /// Arguments forwarded to the command.
+        #[arg(last = true)]
+        args: Vec<String>,
+    },
+
+    /// Spawn an interactive subshell with bv-managed binaries on PATH.
+    Shell {
+        /// Shell to spawn (defaults to $SHELL).
+        #[arg(long)]
+        shell: Option<String>,
+    },
 
     /// Build and publish a tool to bv-registry (opens a PR).
     Publish {

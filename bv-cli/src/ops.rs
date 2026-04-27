@@ -97,6 +97,7 @@ pub async fn generate_lockfile(
             hardware_summary,
         },
         tools: HashMap::new(),
+        binary_index: HashMap::new(),
     };
 
     let sem = Arc::new(tokio::sync::Semaphore::new(3));
@@ -137,8 +138,16 @@ pub fn pull_or_reuse(
             e.manifest_sha256.is_empty() || e.manifest_sha256 == resolved.manifest_sha256;
 
         if version_matches && manifest_matches {
+            let binaries = resolved
+                .manifest
+                .tool
+                .effective_binaries()
+                .into_iter()
+                .map(str::to_string)
+                .collect();
             return Ok(LockfileEntry {
                 manifest_sha256: resolved.manifest_sha256,
+                binaries,
                 ..e.clone()
             });
         }
@@ -189,6 +198,14 @@ pub fn pull_and_make_entry(
         size_str.if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
     );
 
+    let binaries = resolved
+        .manifest
+        .tool
+        .effective_binaries()
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+
     Ok(LockfileEntry {
         tool_id: resolved.tool_id.clone(),
         declared_version_req: version_str,
@@ -199,6 +216,7 @@ pub fn pull_and_make_entry(
         image_size_bytes: size_bytes,
         resolved_at: Utc::now(),
         reference_data_pins: HashMap::new(),
+        binaries,
     })
 }
 

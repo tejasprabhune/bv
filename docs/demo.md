@@ -7,6 +7,7 @@ A step-by-step script for a recorded demo. Total target: under 5 minutes.
 - macOS or Linux with Docker Desktop (or Docker Engine) running
 - `bv` installed (`cargo install biov` or from a release binary)
 - A terminal with reasonable font size for screen recording
+- A machine with an NVIDIA GPU (≥ 8 GB VRAM, CUDA 12) for ColabFold
 
 ## Part 1: Environment check (30 s)
 
@@ -24,7 +25,7 @@ Expected output (trimmed):
     cpu        14 logical cores
     ram        32.0 GB total
     disk       400.0 GB free
-    gpu        none detected
+    gpu        NVIDIA RTX 4090 (24 GB VRAM  CUDA 12.4)
 
   Cache
     path       /Users/you/.cache/bv
@@ -38,18 +39,16 @@ Expected output (trimmed):
     bv.lock    not found
 ```
 
-**Talking points:** `bv doctor` is the first thing to run on a new machine. Shows Docker is up, hardware is fine, and the project is clean. Like `uv run --dry-run` but for the whole environment.
-
-## Part 2: Add a fast tool and run a real analysis (90 s)
-
-`bv run` mounts your project directory as `/workspace` inside the container,
-so any file you put in the folder is accessible at `/workspace/<filename>`.
+## Part 2: Set up the project and add a sequence tool (60 s)
 
 ```sh
-mkdir demo-project && cd demo-project
+mkdir protein-demo && cd protein-demo
 
-# Download a sample protein sequence (human p53, ~400 aa)
-curl -sL "https://rest.uniprot.org/uniprotkb/P04637.fasta" -o p53.fasta
+# Write a small demo protein: Trp-cage miniprotein (20 aa, folds in microseconds)
+cat > trpcage.fasta << 'EOF'
+>trp-cage
+NLYIQWLKDGGPSSGRPPPS
+EOF
 
 bv add blast
 ```
@@ -63,83 +62,19 @@ Expected:
 ```
 
 ```sh
-# Build a local BLAST database
-bv run blast -- makeblastdb \
-    -in /workspace/p53.fasta \
-    -dbtype prot \
-    -out /workspace/p53_db
-
-# Search p53 against that database
-bv run blast -- blastp \
-    -query /workspace/p53.fasta \
-    -db /workspace/p53_db \
-    -out /workspace/results.txt \
-    -outfmt 6
-
-cat results.txt
+# Quick sanity check: confirm the sequence looks right
+bv run blast -- python3 -c "
+from Bio import SeqIO
+for r in SeqIO.parse('/workspace/trpcage.fasta', 'fasta'):
+    print(r.id, len(r.seq), 'aa')
+"
 ```
 
-**Talking points:** `bv add` pulls from the registry, locks to a digest, writes `bv.toml` and `bv.lock`. `bv run` mounts `$PWD` as `/workspace`; files you put in the project dir are immediately available inside the container without any Docker flags.
-
-## Part 3: Add multiple tools in parallel (30 s)
-
-```sh
-bv add hmmer mmseqs2
+```
+trp-cage 20 aa
 ```
 
-Expected (order may vary, pulls happen concurrently):
-
-```
-  Updating index  done
-  Pulling  hmmer@3.3.2
-  Pulling  mmseqs2@17.0.0
-  Added    hmmer 3.3.2   ...  120 MB
-  Added    mmseqs2 17.0.0  ...  500 MB
-```
-
-**Talking points:** Pulls are concurrent (tokio + semaphore, max 3). You don't wait for one image before the next starts.
-
-## Part 4: Show the project files (30 s)
-
-```sh
-cat bv.toml
-```
-
-```toml
-[project]
-name = "demo-project"
-
-[registry]
-url = "https://github.com/mlberkeley/bv-registry"
-
-[[tools]]
-id = "blast"
-version = "=2.15.0"
-
-[[tools]]
-id = "hmmer"
-
-[[tools]]
-id = "mmseqs2"
-```
-
-```sh
-cat bv.lock | head -30
-```
-
-```toml
-version = 1
-
-[tools.blast]
-tool_id = "blast"
-version = "2.15.0"
-image_reference = "ncbi/blast:2.15.0"
-image_digest = "sha256:abc123..."
-```
-
-**Talking points:** These two files capture the full environment. Commit both to git and anyone can reproduce this exact setup.
-
-## Part 5: GPU tool and reference data notice (45 s)
+## Part 3: Try AlphaFold — hit the reference data wall (30 s)
 
 ```sh
 bv add alphafold --ignore-hardware
@@ -160,29 +95,114 @@ Expected:
   Fetch with: bv data fetch uniref90 bfd pdb70
 ```
 
-**Talking points:** `bv add` warns about reference data but does not auto-download; these are terabyte-scale databases. The user opts in with `bv data fetch`. On a machine with a GPU, drop `--ignore-hardware`.
-
-## Part 6: Reference data (30 s, GPU machine or skip)
+1.7 TB of required reference data — not practical for a demo. Remove it and reach for ColabFold instead, which runs MSA through the MMseqs2 web API and needs no local databases.
 
 ```sh
-bv data fetch pdbaa --yes
+bv remove alphafold
+```
+
+## Part 4: Add ColabFold (60 s)
+
+```sh
+bv add colabfold
 ```
 
 Expected:
 
 ```
-  Fetching pdbaa@2024_01
-  [============================>   ] 58 MB/70 MB  00:02
-  Fetched  pdbaa@2024_01  /Users/you/.cache/bv/data/pdbaa/2024_01
+  Updating index  done
+  Pulling  colabfold@1.6.1
+  Added    colabfold 1.6.1  ...  ~4 GB
+```
+
+No reference data required. ColabFold queries the MMseqs2 server for multiple sequence alignments, then runs the AlphaFold2 neural network locally on your GPU.
+
+## Part 5: Show the project files (30 s)
+
+```sh
+cat bv.toml
+```
+
+```toml
+[project]
+name = "protein-demo"
+
+[registry]
+url = "https://github.com/mlberkeley/bv-registry"
+
+[[tools]]
+id = "blast"
+version = "=2.15.0"
+
+[[tools]]
+id = "colabfold"
+version = "=1.6.1"
 ```
 
 ```sh
-bv data list
+cat bv.lock | head -20
 ```
 
+```toml
+version = 1
+
+[tools.blast]
+tool_id = "blast"
+version = "2.15.0"
+image_reference = "ncbi/blast:2.15.0"
+image_digest = "sha256:abc123..."
+
+[tools.colabfold]
+tool_id = "colabfold"
+version = "1.6.1"
+image_reference = "ghcr.io/sokrypton/colabfold:1.6.1-cuda12"
+image_digest = "sha256:def456..."
 ```
-  dataset                version         size
-  pdbaa                  2024_01         70 MB
+
+Both files go into git. Any collaborator with a GPU can run `bv sync` to reproduce the exact same images by digest.
+
+## Part 6: Fold the protein (90 s)
+
+```sh
+python3 fold.py
+```
+
+`fold.py` is included in this repo under `docs/fold.py`. It writes the FASTA, calls `bv run colabfold`, and prints the per-residue confidence (pLDDT) from the result JSON.
+
+Expected output:
+
+```
+Running ColabFold on trp-cage (20 aa)...
+Output directory: output/
+
+Results:
+  trp-cage_unrelaxed_rank_001_alphafold2_ptm_model_1_seed_000.pdb
+  trp-cage_scores_rank_001_alphafold2_ptm_model_1_seed_000.json
+
+pLDDT scores (per residue):
+  N   88.4
+  L   91.2
+  Y   93.7
+  I   92.1
+  Q   90.8
+  W   94.3
+  L   93.1
+  K   89.6
+  D   87.4
+  G   85.2
+  G   84.9
+  P   91.8
+  S   88.7
+  S   87.3
+  G   83.1
+  R   86.4
+  P   90.2
+  P   89.9
+  P   91.1
+  S   87.6
+
+Mean pLDDT: 89.5  (> 70 is considered confident)
+Top structure written to: output/trp-cage_unrelaxed_rank_001...pdb
 ```
 
 ## Part 7: bv list (15 s)
@@ -192,11 +212,9 @@ bv list
 ```
 
 ```
-  tool       version       digest        size     added
-  alphafold  2.3.2         a1b2c3d4e5f6  8.0 GB   2024-01-15 10:03
-  blast      2.15.0        abc123def456  38 MB    2024-01-15 10:00
-  hmmer      3.3.2         deadbeef1234  120 MB   2024-01-15 10:01
-  mmseqs2    14.7564.0     cafebabe9876  500 MB   2024-01-15 10:01
+  tool        version    digest        size     added
+  blast       2.15.0     abc123def456  38 MB    2024-01-15 10:00
+  colabfold   1.6.1      def456abc789  4.0 GB   2024-01-15 10:01
 ```
 
 ## Part 8: Reproduction on another machine (45 s)
@@ -205,7 +223,7 @@ Simulate a collaborator:
 
 ```sh
 cd /tmp
-git clone demo-project collab-project    # or copy bv.toml + bv.lock
+git clone protein-demo collab-project    # or copy bv.toml + bv.lock
 cd collab-project
 bv sync
 ```
@@ -213,25 +231,22 @@ bv sync
 Expected:
 
 ```
-  Present  alphafold 2.3.2  (already in Docker cache)
-  Pulling  blast 2.15.0  ncbi/blast@sha256:abc123...
-  Synced   blast 2.15.0  abc123
-  Synced   hmmer 3.3.2   deadbeef
-  Synced   mmseqs2 14.7564.0  cafebabe
+  Pulling  blast 2.15.0       ncbi/blast@sha256:abc123...
+  Synced   blast 2.15.0       abc123
+  Pulling  colabfold 1.6.1    ghcr.io/sokrypton/colabfold@sha256:def456...
+  Synced   colabfold 1.6.1    def456
 ```
 
-**Talking points:** `bv sync` does not re-resolve versions or pull from the registry; it reads `bv.lock` and pulls by digest. If the image is already in Docker's local cache (e.g., on the same machine or a shared layer cache), it skips the pull. This is what makes `bv sync` fast in practice.
+`bv sync` reads `bv.lock` and pulls by digest — no version resolution, no registry round-trips. If the image is already in Docker's local cache (e.g., shared layer cache on a cluster), the pull is instant.
 
 ## Part 9: CI validation (30 s)
-
-Show the CI commands:
 
 ```yaml
 - run: bv sync --frozen   # asserts bv.toml and bv.lock are consistent
 - run: bv lock --check    # asserts bv.lock would not change if re-generated
 ```
 
-**Talking points:** `--frozen` catches the case where someone added a tool to `bv.toml` but forgot to lock. `--check` catches the case where the registry manifest changed (e.g., a CVE patch bumped the image digest). Both exit 1 in CI, forcing an explicit re-lock before merging.
+`--frozen` catches the case where someone added a tool to `bv.toml` but forgot to lock. `--check` catches the case where the registry manifest changed (e.g., a CVE patch bumped the image digest). Both exit 1 in CI, forcing an explicit re-lock before merging.
 
 ---
 
@@ -241,20 +256,17 @@ Show the CI commands:
 |------|----------|
 | `bv doctor` | < 1 s |
 | `bv add blast` | 30-60 s (Docker pull) |
-| `bv run blast -- blastn -version` | 2-5 s |
-| `bv add hmmer mmseqs2` | 30-90 s (parallel pulls) |
 | `bv add alphafold --ignore-hardware` | 60-300 s (8 GB image) |
-| `bv data fetch pdbaa --yes` | 30-120 s (70 MB) |
+| `bv remove alphafold` | < 1 s |
+| `bv add colabfold` | 2-5 min (4 GB image) |
+| `bv run colabfold` on Trp-cage | 2-5 min (includes MSA API call) |
 | `bv list` | < 1 s |
 | `bv sync` (warm Docker cache) | < 5 s per tool |
-
-For a 5-minute recording, use blast + hmmer (small images) and skip alphafold/reference data unless on a machine that already has the images cached.
 
 ## Machine requirements
 
 | Feature | Mac (no GPU) | Linux + NVIDIA GPU |
 |---------|-------------|-------------------|
-| blast, hmmer, mmseqs2 | Yes | Yes |
-| alphafold (add + sync) | Yes (--ignore-hardware) | Yes |
-| alphafold (run) | No (needs GPU) | Yes |
-| bv data fetch | Yes | Yes |
+| blast | Yes | Yes |
+| colabfold (add + sync) | Yes (`--ignore-hardware`) | Yes |
+| colabfold (run) | No (needs GPU + CUDA 12) | Yes |

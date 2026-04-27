@@ -7,7 +7,7 @@ use bv_core::project::BvLock;
 
 use crate::commands::add::{format_size, short_digest};
 
-pub fn run() -> anyhow::Result<()> {
+pub fn run(binaries: bool) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let bv_lock_path = cwd.join("bv.lock");
 
@@ -17,6 +17,10 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     let lockfile = BvLock::from_path(&bv_lock_path).context("failed to read bv.lock")?;
+
+    if binaries {
+        return run_binaries(&lockfile);
+    }
 
     if lockfile.tools.is_empty() {
         println!("No tools installed. Run `bv add <tool>` to get started.");
@@ -70,6 +74,40 @@ pub fn run() -> anyhow::Result<()> {
             size,
             date.if_supports_color(Stream::Stdout, |t| t.dimmed().to_string()),
         );
+    }
+
+    Ok(())
+}
+
+fn run_binaries(lockfile: &bv_core::lockfile::Lockfile) -> anyhow::Result<()> {
+    if lockfile.binary_index.is_empty() {
+        println!("No binaries indexed. Run `bv sync` to regenerate.");
+        return Ok(());
+    }
+
+    let cache = CacheLayout::new();
+    let mut pairs: Vec<_> = lockfile.binary_index.iter().collect();
+    pairs.sort_by_key(|(bin, _)| bin.as_str());
+
+    let w_bin = pairs.iter().map(|(b, _)| b.len()).max().unwrap_or(6).max(6);
+
+    println!(
+        "  {:<w_bin$}  {}",
+        "Binary".bold(),
+        "Tool".bold(),
+    );
+    println!("  {}", "-".repeat(w_bin + 20));
+
+    for (binary, tool_id) in &pairs {
+        let entry = lockfile.tools.get(tool_id.as_str());
+        let version = entry.map(|e| e.version.as_str()).unwrap_or("-");
+        println!(
+            "  {:<w_bin$}  {} {}",
+            binary,
+            tool_id.if_supports_color(Stream::Stdout, |t| t.bold().to_string()),
+            version.if_supports_color(Stream::Stdout, |t| t.dimmed().to_string()),
+        );
+        let _ = cache;
     }
 
     Ok(())

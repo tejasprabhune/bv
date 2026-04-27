@@ -62,6 +62,10 @@ pub struct BvToml {
     pub hardware: HardwareProfile,
     #[serde(default, skip_serializing_if = "runtime_config_is_default")]
     pub runtime: RuntimeConfig,
+    /// Resolves collisions when two tools expose the same binary name.
+    /// Maps binary name to the tool id that should own the shim.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub binary_overrides: HashMap<String, String>,
 }
 
 fn runtime_config_is_default(rc: &RuntimeConfig) -> bool {

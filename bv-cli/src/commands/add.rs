@@ -52,6 +52,7 @@ pub async fn run(
             data: HashMap::new(),
             hardware: Default::default(),
             runtime: Default::default(),
+            binary_overrides: HashMap::new(),
         }
     };
 
@@ -245,8 +246,20 @@ pub async fn run(
         lockfile.tools.insert(entry.tool_id.clone(), entry.clone());
     }
 
+    lockfile
+        .rebuild_binary_index(&bv_toml.binary_overrides)
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "binary name collision: {e}\n  \
+                 Add [binary_overrides] to bv.toml to resolve, e.g.:\n  \
+                 [binary_overrides]\n  \
+                 <binary> = \"<tool-id>\""
+            )
+        })?;
+
     bv_toml.to_path(&bv_toml_path)?;
     BvLock::to_path(&lockfile, &bv_lock_path)?;
+    crate::shims::write_shims(&cwd, &lockfile)?;
 
     Ok(())
 }

@@ -134,6 +134,10 @@ pub fn run(
         }
     }
 
+    // Check that every declared binary responds to --help / --version / -h.
+    let binary_failures = check_binaries(manifest, image_digest, runtime);
+    failures.extend(binary_failures);
+
     let duration = start.elapsed();
     if failures.is_empty() {
         Ok(ConformanceResult::pass(
@@ -144,6 +148,60 @@ pub fn run(
     } else {
         Ok(ConformanceResult::fail(&tool.id, failures, duration))
     }
+}
+
+/// For each binary in `tool.binaries.exposed`, verify it runs with
+/// `--help`, `--version`, or `-h` and exits 0.
+fn check_binaries(
+    manifest: &Manifest,
+    image_digest: &str,
+    runtime: &dyn ContainerRuntime,
+) -> Vec<String> {
+    let tool = &manifest.tool;
+    let binaries = tool.effective_binaries();
+
+    let mut image: OciRef = match tool.image.reference.parse() {
+        Ok(r) => r,
+        Err(_) => return vec![],
+    };
+    image.tag = None;
+    image.digest = Some(image_digest.to_string());
+
+    let tmp = match tempfile::TempDir::new() {
+        Ok(t) => t,
+        Err(_) => return vec![],
+    };
+
+    let mut failures = Vec::new();
+    for binary in binaries {
+        let mut passed = false;
+        for probe in &["--help", "--version", "-h"] {
+            let spec = RunSpec {
+                image: image.clone(),
+                command: vec![binary.to_string(), probe.to_string()],
+                env: Default::default(),
+                mounts: vec![Mount {
+                    host_path: tmp.path().to_path_buf(),
+                    container_path: PathBuf::from("/workspace"),
+                    read_only: false,
+                }],
+                gpu: GpuProfile { spec: None },
+                working_dir: Some(PathBuf::from("/workspace")),
+            };
+            if let Ok(outcome) = runtime.run(&spec)
+                && outcome.exit_code == 0
+            {
+                passed = true;
+                break;
+            }
+        }
+        if !passed {
+            failures.push(format!(
+                "binary '{binary}' did not respond to --help / --version / -h with exit 0"
+            ));
+        }
+    }
+    failures
 }
 
 fn substitute_placeholders(

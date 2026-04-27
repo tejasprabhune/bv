@@ -27,9 +27,11 @@ pub fn run(tool: &str) -> anyhow::Result<()> {
     };
 
     lockfile.tools.remove(tool);
+    let _ = lockfile.rebuild_binary_index(&bv_toml.binary_overrides);
 
     bv_toml.to_path(&bv_toml_path)?;
     BvLock::to_path(&lockfile, &bv_lock_path)?;
+    crate::shims::write_shims(&cwd, &lockfile)?;
 
     eprintln!(
         "  {} {}",

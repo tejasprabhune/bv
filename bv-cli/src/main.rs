@@ -6,6 +6,7 @@ mod progress;
 mod publish;
 mod registry;
 mod runtime_select;
+mod shims;
 
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -61,7 +62,9 @@ async fn main() -> anyhow::Result<()> {
             args,
             backend,
         } => commands::run::run(tool, args, backend.as_deref()).await,
-        Commands::List => commands::list::run(),
+        Commands::List { binaries } => commands::list::run(*binaries),
+        Commands::Exec { command, args } => commands::exec::run(command, args),
+        Commands::Shell { shell } => commands::shell::run(shell.as_deref()),
         Commands::Show { tool, format } => commands::show::run(tool, format.clone()),
         Commands::Info { tool } => commands::run::info(tool),
         Commands::Lock { check, registry } => {

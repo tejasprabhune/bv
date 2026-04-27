@@ -34,8 +34,17 @@ pub async fn run(check: bool, registry_flag: Option<&str>) -> anyhow::Result<()>
 
     let runtime = crate::runtime_select::resolve_runtime(None, Some(&bv_toml))?;
     let mp = MultiProgress::new();
-    let new_lock =
+    let mut new_lock =
         ops::generate_lockfile(resolved, existing_lock.as_ref(), None, &mp, &runtime).await?;
+
+    new_lock
+        .rebuild_binary_index(&bv_toml.binary_overrides)
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "binary name collision: {e}\n  \
+                 Add [binary_overrides] to bv.toml to resolve"
+            )
+        })?;
 
     if check {
         match &existing_lock {
@@ -62,6 +71,7 @@ pub async fn run(check: bool, registry_flag: Option<&str>) -> anyhow::Result<()>
         }
     } else {
         BvLock::to_path(&new_lock, &bv_lock_path)?;
+        crate::shims::write_shims(&cwd, &new_lock)?;
         let n = new_lock.tools.len();
         eprintln!(
             "  {} bv.lock ({} tool{})",

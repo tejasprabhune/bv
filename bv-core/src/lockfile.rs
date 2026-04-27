@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{BvError, Result};
 
+pub type BinaryIndex = HashMap<String, String>;
+
 /// Per-dataset pin stored inside a lockfile entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReferenceDataPin {
@@ -37,6 +39,9 @@ pub struct LockfileEntry {
     pub resolved_at: DateTime<Utc>,
     #[serde(default)]
     pub reference_data_pins: HashMap<String, ReferenceDataPin>,
+    /// Binary names this tool contributes to the binary index.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub binaries: Vec<String>,
 }
 
 impl LockfileEntry {
@@ -83,6 +88,10 @@ pub struct Lockfile {
     pub metadata: LockfileMetadata,
     #[serde(default)]
     pub tools: HashMap<String, LockfileEntry>,
+    /// Derived routing table: binary name -> tool id.
+    /// Rebuilt by `rebuild_binary_index` whenever tools change.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub binary_index: BinaryIndex,
 }
 
 impl Lockfile {
@@ -91,6 +100,7 @@ impl Lockfile {
             version: 1,
             metadata: LockfileMetadata::default(),
             tools: HashMap::new(),
+            binary_index: HashMap::new(),
         }
     }
 
@@ -100,6 +110,42 @@ impl Lockfile {
 
     pub fn to_toml_string(&self) -> Result<String> {
         toml::to_string_pretty(self).map_err(|e| BvError::LockfileParse(e.to_string()))
+    }
+
+    /// Rebuild `binary_index` from each tool's `binaries` list.
+    ///
+    /// `overrides` maps binary name to the tool id that wins when two tools
+    /// expose the same name. Without an override, a collision returns `Err`.
+    pub fn rebuild_binary_index(
+        &mut self,
+        overrides: &HashMap<String, String>,
+    ) -> std::result::Result<(), String> {
+        let mut index: BinaryIndex = HashMap::new();
+        let mut collisions: Vec<String> = Vec::new();
+
+        let mut sorted: Vec<_> = self.tools.iter().collect();
+        sorted.sort_by_key(|(id, _)| id.as_str());
+
+        for (tool_id, entry) in &sorted {
+            for binary in &entry.binaries {
+                if let Some(winner) = overrides.get(binary) {
+                    index.insert(binary.clone(), winner.clone());
+                } else if let Some(existing) = index.insert(binary.clone(), tool_id.to_string())
+                    && existing != tool_id.as_str()
+                {
+                    collisions.push(format!(
+                        "'{binary}' exposed by both '{existing}' and '{tool_id}'"
+                    ));
+                    index.insert(binary.clone(), existing);
+                }
+            }
+        }
+
+        if !collisions.is_empty() {
+            return Err(collisions.join(", "));
+        }
+        self.binary_index = index;
+        Ok(())
     }
 
     /// True when both lockfiles describe the same set of tools at the same

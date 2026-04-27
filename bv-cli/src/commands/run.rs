@@ -21,16 +21,28 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
 
     let lockfile = BvLock::from_path(&bv_lock_path).context("failed to read bv.lock")?;
 
-    let entry = lockfile.tools.get(tool).ok_or_else(|| {
-        anyhow::anyhow!("Tool '{tool}' is not in this project. Run `bv add {tool}` first.")
+    // Resolve: first try as a tool id, then as a binary name.
+    let (tool_id, binary_override) = if lockfile.tools.contains_key(tool) {
+        (tool.to_string(), None)
+    } else if let Some(resolved) = lockfile.binary_index.get(tool) {
+        (resolved.clone(), Some(tool.to_string()))
+    } else {
+        anyhow::bail!(
+            "no tool or binary named '{tool}' in this project.\n  \
+             Run `bv list --binaries` to see available binaries, or `bv add {tool}` to add it."
+        );
+    };
+
+    let entry = lockfile.tools.get(&tool_id).ok_or_else(|| {
+        anyhow::anyhow!("Tool '{tool_id}' is not in this project. Run `bv add {tool_id}` first.")
     })?;
 
     // Load the cached manifest to get the entrypoint.
     let cache = CacheLayout::new();
-    let manifest_path = cache.manifest_path(tool, &entry.version);
+    let manifest_path = cache.manifest_path(&tool_id, &entry.version);
     let manifest = if manifest_path.exists() {
         let s = std::fs::read_to_string(&manifest_path)
-            .with_context(|| format!("failed to read cached manifest for '{tool}'"))?;
+            .with_context(|| format!("failed to read cached manifest for '{tool_id}'"))?;
         Manifest::from_toml_str(&s)?
     } else {
         // Manifest was evicted from cache (e.g. user deleted ~/.cache/bv).
@@ -38,20 +50,20 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
         let index_manifest = cache
             .index_dir("default")
             .join("tools")
-            .join(tool)
+            .join(&tool_id)
             .join(format!("{}.toml", entry.version));
 
         if index_manifest.exists() {
             let s = std::fs::read_to_string(&index_manifest)
-                .with_context(|| format!("failed to read index manifest for '{tool}'"))?;
+                .with_context(|| format!("failed to read index manifest for '{tool_id}'"))?;
             let m = Manifest::from_toml_str(&s)?;
             crate::commands::add::cache_manifest(&cache, &m)
-                .with_context(|| format!("failed to restore cached manifest for '{tool}'"))?;
+                .with_context(|| format!("failed to restore cached manifest for '{tool_id}'"))?;
             m
         } else {
             anyhow::bail!(
-                "Manifest for '{tool}@{}' is not in cache or local index.\n\
-                 Run `bv add {tool}` to restore it.",
+                "Manifest for '{tool_id}@{}' is not in cache or local index.\n\
+                 Run `bv add {tool_id}` to restore it.",
                 entry.version
             );
         }
@@ -65,8 +77,13 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
     image.tag = None;
     image.digest = Some(entry.image_digest.clone());
 
-    // Decide command: user-supplied args override the manifest entrypoint.
-    let command = if args.is_empty() {
+    // Decide command: binary routing > user args > manifest entrypoint.
+    let command = if let Some(bin) = binary_override {
+        // bv run blastn -query foo.fa  ->  ["blastn", "-query", "foo.fa"]
+        let mut cmd = vec![bin];
+        cmd.extend_from_slice(args);
+        cmd
+    } else if args.is_empty() {
         vec![manifest.tool.entrypoint.command.clone()]
     } else {
         args.to_vec()
@@ -136,7 +153,7 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
     let base_ref = crate::ops::base_image_ref(&entry.image_reference);
     if !runtime.is_locally_available(&base_ref, &entry.image_digest) {
         anyhow::bail!(
-            "Image for '{tool}@{}' is not available locally.\n  \
+            "Image for '{tool_id}@{}' is not available locally.\n  \
              Run `bv sync` to pull it.",
             entry.version
         );
@@ -144,7 +161,7 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
 
     let outcome = runtime
         .run(&spec)
-        .with_context(|| format!("failed to run '{tool}'"))?;
+        .with_context(|| format!("failed to run '{tool_id}'"))?;
 
     if outcome.exit_code != 0 {
         std::process::exit(outcome.exit_code);

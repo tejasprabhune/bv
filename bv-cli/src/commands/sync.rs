@@ -147,6 +147,8 @@ pub async fn run(
         anyhow::bail!("sync failed");
     }
 
+    crate::shims::write_shims(&cwd, &lockfile)?;
+
     Ok(())
 }
 
