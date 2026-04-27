@@ -8,6 +8,7 @@ homepage.workspace = true
 description = "Core types for biov: manifests, lockfile, cache layout, and error types"
 
 [dependencies]
+bv-types = { version = "0.1.0", path = "../bv-types" }
 chrono = { version = "0.4.44", features = ["serde"] }
 semver = { version = "1.0.28", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }

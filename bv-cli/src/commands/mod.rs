@@ -5,6 +5,7 @@ pub mod list;
 pub mod lock;
 pub mod remove;
 pub mod run;
+pub mod show;
 pub mod sync;
 
 use crate::cli::{CacheCommands, DataCommands};

@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
+
+use bv_types::{Cardinality, TypeRef};
 
 use crate::error::{BvError, Result};
 
@@ -165,37 +168,31 @@ pub struct ReferenceDataSpec {
     pub id: String,
     pub version: String,
     pub required: bool,
-    /// Container path where the dataset directory is mounted read-only, e.g. `/data/uniref90`.
+    /// Container path where the dataset directory is mounted read-only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mount_path: Option<String>,
-    /// Approximate compressed size in bytes; shown in `bv add` reference data notice.
+    /// Approximate compressed size in bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size_bytes: Option<u64>,
 }
 
+/// Typed I/O port declaration for a tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IoInput {
-    pub name: String,
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub required: bool,
-    pub description: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IoOutput {
-    pub name: String,
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub description: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IoSpec {
+    pub name: String,
+    /// Type reference, e.g. `"fasta"` or `"fasta[protein]"`.
+    #[serde(rename = "type")]
+    pub r#type: TypeRef,
+    /// How many values this port accepts.
     #[serde(default)]
-    pub inputs: Vec<IoInput>,
-    #[serde(default)]
-    pub outputs: Vec<IoOutput>,
+    pub cardinality: Cardinality,
+    /// Absolute path inside the container where this value is mounted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mount: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -217,12 +214,22 @@ pub struct ToolManifest {
     pub hardware: HardwareSpec,
     #[serde(default)]
     pub reference_data: HashMap<String, ReferenceDataSpec>,
+    /// Typed inputs. Optional — manifests without this section parse unchanged.
     #[serde(default)]
-    pub io: IoSpec,
+    pub inputs: Vec<IoSpec>,
+    /// Typed outputs. Optional — manifests without this section parse unchanged.
+    #[serde(default)]
+    pub outputs: Vec<IoSpec>,
     pub entrypoint: EntrypointSpec,
 }
 
-/// Top-level manifest - corresponds to a single `manifest.toml` in the registry.
+impl ToolManifest {
+    pub fn has_typed_io(&self) -> bool {
+        !self.inputs.is_empty() || !self.outputs.is_empty()
+    }
+}
+
+/// Top-level manifest — corresponds to a single `.toml` file in the registry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     pub tool: ToolManifest,
@@ -242,11 +249,34 @@ impl fmt::Display for ValidationError {
 
 impl Manifest {
     pub fn from_toml_str(s: &str) -> Result<Self> {
-        toml::from_str(s).map_err(|e| BvError::ManifestParse(e.to_string()))
+        let m: Manifest =
+            toml::from_str(s).map_err(|e| BvError::ManifestParse(e.to_string()))?;
+        m.validate_types()?;
+        Ok(m)
     }
 
     pub fn to_toml_string(&self) -> Result<String> {
         toml::to_string_pretty(self).map_err(|e| BvError::ManifestParse(e.to_string()))
+    }
+
+    /// Validates that all TypeRefs in inputs/outputs exist in the bv-types vocabulary.
+    fn validate_types(&self) -> Result<()> {
+        let t = &self.tool;
+        for (side, specs) in [("inputs", &t.inputs), ("outputs", &t.outputs)] {
+            for spec in specs {
+                let id = spec.r#type.base_id();
+                if bv_types::lookup(id).is_none() {
+                    let suggestion = bv_types::suggest(id)
+                        .map(|s| format!(", did you mean `{s}`?"))
+                        .unwrap_or_default();
+                    return Err(BvError::ManifestParse(format!(
+                        "tool.{side}[{}]: unknown type `{id}`{suggestion}",
+                        spec.name
+                    )));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Returns a list of validation errors, or `Ok(())` if the manifest is valid.
@@ -285,6 +315,27 @@ impl Manifest {
             });
         }
 
+        for spec in &t.inputs {
+            if let Some(mount) = &spec.mount {
+                if !mount.is_absolute() {
+                    errors.push(ValidationError {
+                        field: format!("tool.inputs[{}].mount", spec.name),
+                        message: "must be an absolute path".into(),
+                    });
+                }
+            }
+        }
+        for spec in &t.outputs {
+            if let Some(mount) = &spec.mount {
+                if !mount.is_absolute() {
+                    errors.push(ValidationError {
+                        field: format!("tool.outputs[{}].mount", spec.name),
+                        message: "must be an absolute path".into(),
+                    });
+                }
+            }
+        }
+
         if errors.is_empty() {
             Ok(())
         } else {
@@ -318,24 +369,19 @@ disk_gb = 50.0
 [tool.hardware.gpu]
 required = false
 
-[tool.reference_data.hg38]
-id = "hg38"
-version = "1.0"
-required = true
-
-[[tool.io.inputs]]
+[[tool.inputs]]
 name = "reads_r1"
 type = "fastq"
-required = true
+cardinality = "one"
 description = "Forward reads"
 
-[[tool.io.inputs]]
+[[tool.inputs]]
 name = "reads_r2"
 type = "fastq"
-required = false
+cardinality = "optional"
 description = "Reverse reads (paired-end)"
 
-[[tool.io.outputs]]
+[[tool.outputs]]
 name = "alignment"
 type = "bam"
 description = "Aligned reads"
@@ -348,19 +394,95 @@ args_template = "mem -t {cpu_cores} {reference} {reads_r1} {reads_r2}"
 MALLOC_ARENA_MAX = "4"
 "#;
 
+    const SAMPLE_NO_IO: &str = r#"
+[tool]
+id = "mytool"
+version = "1.0.0"
+
+[tool.image]
+backend = "docker"
+reference = "example/mytool:1.0.0"
+
+[tool.hardware]
+
+[tool.entrypoint]
+command = "mytool"
+"#;
+
     #[test]
     fn round_trip() {
         let manifest = Manifest::from_toml_str(SAMPLE).expect("parse failed");
         assert_eq!(manifest.tool.id, "bwa");
         assert_eq!(manifest.tool.version, "0.7.17");
         assert_eq!(manifest.tool.image.backend, "docker");
-        assert_eq!(manifest.tool.io.inputs.len(), 2);
-        assert_eq!(manifest.tool.io.outputs.len(), 1);
+        assert_eq!(manifest.tool.inputs.len(), 2);
+        assert_eq!(manifest.tool.outputs.len(), 1);
+        assert_eq!(manifest.tool.inputs[0].cardinality, Cardinality::One);
+        assert_eq!(manifest.tool.inputs[1].cardinality, Cardinality::Optional);
 
         let serialised = manifest.to_toml_string().expect("serialise failed");
         let reparsed = Manifest::from_toml_str(&serialised).expect("reparse failed");
         assert_eq!(reparsed.tool.id, manifest.tool.id);
         assert_eq!(reparsed.tool.version, manifest.tool.version);
+    }
+
+    #[test]
+    fn no_io_parses_unchanged() {
+        let m = Manifest::from_toml_str(SAMPLE_NO_IO).expect("parse failed");
+        assert!(m.tool.inputs.is_empty());
+        assert!(m.tool.outputs.is_empty());
+        assert!(!m.tool.has_typed_io());
+    }
+
+    #[test]
+    fn typeref_params_parsed() {
+        let s = r#"
+[tool]
+id = "t"
+version = "1.0.0"
+
+[tool.image]
+backend = "docker"
+reference = "example/t:1.0.0"
+
+[tool.hardware]
+
+[[tool.inputs]]
+name = "seqs"
+type = "fasta[protein]"
+cardinality = "one"
+
+[tool.entrypoint]
+command = "t"
+"#;
+        let m = Manifest::from_toml_str(s).unwrap();
+        assert_eq!(m.tool.inputs[0].r#type.params, vec!["protein"]);
+    }
+
+    #[test]
+    fn unknown_type_error() {
+        let s = r#"
+[tool]
+id = "t"
+version = "1.0.0"
+
+[tool.image]
+backend = "docker"
+reference = "example/t:1.0.0"
+
+[tool.hardware]
+
+[[tool.inputs]]
+name = "seqs"
+type = "protien_fasta"
+cardinality = "one"
+
+[tool.entrypoint]
+command = "t"
+"#;
+        let err = Manifest::from_toml_str(s).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("unknown type"), "got: {msg}");
     }
 
     #[test]
@@ -379,5 +501,23 @@ MALLOC_ARENA_MAX = "4"
         manifest.tool.id = String::new();
         let errs = manifest.validate().unwrap_err();
         assert!(errs.iter().any(|e| e.field == "tool.id"));
+    }
+
+    #[test]
+    fn registry_manifests_parse() {
+        let registry = concat!(env!("CARGO_MANIFEST_DIR"), "/../../bv-registry/tools");
+        for entry in std::fs::read_dir(registry).unwrap() {
+            let tool_dir = entry.unwrap().path();
+            for version_entry in std::fs::read_dir(&tool_dir).unwrap() {
+                let path = version_entry.unwrap().path();
+                if path.extension().is_some_and(|e| e == "toml") {
+                    let s = std::fs::read_to_string(&path)
+                        .unwrap_or_else(|_| panic!("failed to read {}", path.display()));
+                    Manifest::from_toml_str(&s).unwrap_or_else(|e| {
+                        panic!("{}: {e}", path.display())
+                    });
+                }
+            }
+        }
     }
 }

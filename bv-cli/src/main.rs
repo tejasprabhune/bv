@@ -32,6 +32,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Remove { tool } => commands::remove::run(tool),
         Commands::Run { tool, args } => commands::run::run(tool, args),
         Commands::List => commands::list::run(),
+        Commands::Show { tool, format } => commands::show::run(tool, format.clone()),
         Commands::Info { tool } => commands::run::info(tool),
         Commands::Lock { check, registry } => {
             commands::lock::run(*check, registry.as_deref()).await

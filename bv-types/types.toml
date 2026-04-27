@@ -1,0 +1,89 @@
+# Canonical bv type vocabulary - bv-types 0.1
+# CI fails if any type lacks description.
+# Roots must have `kind`; non-roots must have `parent`.
+
+[types.file]
+kind = "file"
+description = "Any file"
+mime = "application/octet-stream"
+
+[types.dir]
+kind = "directory"
+description = "Any directory"
+
+[types.tabular]
+parent = "file"
+description = "Tab-separated tabular data"
+mime = "text/tab-separated-values"
+
+[types.fasta]
+parent = "file"
+description = "FASTA sequence file"
+mime = "application/x-fasta"
+parameters = ["alphabet"]
+
+[types.fastq]
+parent = "file"
+description = "FASTQ sequence file with per-base quality scores"
+mime = "application/x-fastq"
+
+[types.sam]
+parent = "tabular"
+description = "Sequence Alignment/Map format"
+mime = "text/x-sam"
+
+[types.bam]
+parent = "file"
+description = "Binary Alignment Map"
+mime = "application/x-bam"
+
+[types.msa]
+parent = "file"
+description = "Multiple sequence alignment"
+parameters = ["format"]
+
+[types.pdb]
+parent = "file"
+description = "Protein Data Bank structure file"
+mime = "chemical/x-pdb"
+
+[types.mmcif]
+parent = "file"
+description = "Macromolecular CIF structure file"
+mime = "chemical/x-mmcif"
+
+[types.vcf]
+parent = "tabular"
+description = "Variant Call Format"
+mime = "text/x-vcf"
+
+[types.bcf]
+parent = "file"
+description = "Binary Variant Call Format"
+mime = "application/x-bcf"
+
+[types.blast_db]
+kind = "directory"
+description = "BLAST database directory (phr/pin/psq files)"
+
+[types.hmm_profile]
+parent = "file"
+description = "HMMER profile HMM file"
+mime = "application/x-hmm"
+
+[types.blast_tab]
+parent = "tabular"
+description = "BLAST tabular output (outfmt 6)"
+columns = "blast_outfmt_6"
+
+[types.hmmer_output]
+parent = "file"
+description = "HMMER search output (text report)"
+
+[types.mmseqs_db]
+kind = "directory"
+description = "MMseqs2 database directory"
+
+[types.mmseqs_output]
+parent = "file"
+description = "MMseqs2 search results"

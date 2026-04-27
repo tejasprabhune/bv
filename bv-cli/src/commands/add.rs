@@ -159,6 +159,13 @@ pub async fn run(
         );
     }
 
+    // Warn about required reference data before pulling images.
+    for r in &to_add {
+        if !r.manifest.tool.reference_data.is_empty() {
+            print_reference_data_notice(&r.tool_id, &r.manifest);
+        }
+    }
+
     DockerRuntime
         .health_check()
         .context("Docker is not available. Is Docker Desktop running?")?;
@@ -214,17 +221,6 @@ pub async fn run(
 
     bv_toml.to_path(&bv_toml_path)?;
     BvLock::to_path(&lockfile, &bv_lock_path)?;
-
-    // Print reference data notice for any tool that declares datasets.
-    for entry in &pulled {
-        let manifest_path = cache.manifest_path(&entry.tool_id, &entry.version);
-        if let Ok(s) = std::fs::read_to_string(&manifest_path)
-            && let Ok(m) = Manifest::from_toml_str(&s)
-            && !m.tool.reference_data.is_empty()
-        {
-            print_reference_data_notice(&entry.tool_id, &m);
-        }
-    }
 
     Ok(())
 }

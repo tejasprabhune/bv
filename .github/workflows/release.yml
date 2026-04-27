@@ -40,7 +40,7 @@ jobs:
           echo '[target.aarch64-unknown-linux-gnu]' >> .cargo/config.toml
           echo 'linker = "aarch64-linux-gnu-gcc"' >> .cargo/config.toml
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} -p bv-cli
+        run: cargo build --release --target ${{ matrix.target }} -p biov
       - name: Rename binary
         run: |
           cp target/${{ matrix.target }}/release/bv bv-${{ matrix.target }}

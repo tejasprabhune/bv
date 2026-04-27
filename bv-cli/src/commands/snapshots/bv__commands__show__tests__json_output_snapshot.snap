@@ -1,0 +1,40 @@
+---
+source: bv-cli/src/commands/show.rs
+expression: json
+---
+{
+  "schema_version": "1.0",
+  "tool": {
+    "id": "blast",
+    "version": "2.15.0",
+    "description": "BLAST+ Basic Local Alignment Search Tool",
+    "homepage": "https://blast.ncbi.nlm.nih.gov/Blast.cgi",
+    "license": "Public Domain",
+    "image": {
+      "backend": "docker",
+      "reference": "ncbi/blast:2.15.0"
+    },
+    "inputs": [
+      {
+        "name": "query",
+        "type": "fasta",
+        "cardinality": "one",
+        "description": "Query sequences in FASTA format"
+      },
+      {
+        "name": "db",
+        "type": "blast_db",
+        "cardinality": "one",
+        "description": "BLAST database directory"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "output",
+        "type": "blast_tab",
+        "cardinality": "one",
+        "description": "Tabular BLAST results"
+      }
+    ]
+  }
+}

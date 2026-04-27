@@ -1,5 +1,8 @@
 use clap::{Parser, Subcommand};
 
+use crate::commands::show::ShowFormat;
+
+
 #[derive(Parser)]
 #[command(
     name = "bv",
@@ -48,7 +51,16 @@ pub enum Commands {
     /// List tools installed in this project.
     List,
 
-    /// Show detailed information about an installed tool.
+    /// Show typed I/O schema and metadata for a tool.
+    Show {
+        /// Tool identifier.
+        tool: String,
+        /// Output format.
+        #[arg(long, value_enum)]
+        format: Option<ShowFormat>,
+    },
+
+    /// Show detailed lockfile information about an installed tool.
     Info {
         /// Tool identifier.
         tool: String,
