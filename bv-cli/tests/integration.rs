@@ -16,10 +16,6 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
 /// Path to the compiled `bv` binary.
 fn bv_bin() -> PathBuf {
     env::current_exe()
@@ -57,10 +53,6 @@ fn bv(args: &[&str], project_dir: &Path, cache_dir: &Path) -> Command {
         .env("BV_CACHE_DIR", cache_dir);
     cmd
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[test]
 #[ignore = "requires Docker daemon and network access"]

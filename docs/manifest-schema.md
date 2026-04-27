@@ -49,7 +49,7 @@
 
 | Field | Type | Always present | Description |
 |---|---|---|---|
-| `schema_version` | string | yes | `"1.0"` — bump when shape changes |
+| `schema_version` | string | yes | `"1.0"`; bump when shape changes |
 | `tool` | object | yes | Tool descriptor |
 
 ### `tool`

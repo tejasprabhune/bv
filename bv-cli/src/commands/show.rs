@@ -104,7 +104,7 @@ fn print_human(tool: &ToolManifest) {
     } else {
         eprintln!(
             "{}",
-            "  warning: no typed I/O declared — may not work with workflow integrations"
+            "  warning: no typed I/O declared; may not work with workflow integrations"
                 .if_supports_color(Stream::Stderr, |t| t.yellow().to_string())
         );
     }
@@ -121,7 +121,7 @@ fn print_io_line(indent: &str, spec: &IoSpec) {
     );
 }
 
-/// Stable JSON output — this is a public API surface. Version it here.
+/// Stable JSON output. This is a public API surface; version it here.
 #[derive(Serialize)]
 struct JsonOutput<'a> {
     schema_version: &'static str,

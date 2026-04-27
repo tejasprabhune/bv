@@ -214,10 +214,10 @@ pub struct ToolManifest {
     pub hardware: HardwareSpec,
     #[serde(default)]
     pub reference_data: HashMap<String, ReferenceDataSpec>,
-    /// Typed inputs. Optional — manifests without this section parse unchanged.
+    /// Typed inputs. Optional; manifests without this section parse unchanged.
     #[serde(default)]
     pub inputs: Vec<IoSpec>,
-    /// Typed outputs. Optional — manifests without this section parse unchanged.
+    /// Typed outputs. Optional; manifests without this section parse unchanged.
     #[serde(default)]
     pub outputs: Vec<IoSpec>,
     pub entrypoint: EntrypointSpec,
@@ -229,7 +229,7 @@ impl ToolManifest {
     }
 }
 
-/// Top-level manifest — corresponds to a single `.toml` file in the registry.
+/// Top-level manifest, corresponding to a single `.toml` file in the registry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     pub tool: ToolManifest,

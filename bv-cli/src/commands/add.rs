@@ -268,8 +268,6 @@ fn print_reference_data_notice(tool_id: &str, manifest: &Manifest) {
     );
 }
 
-// ---------------------------------------------------------------------------
-
 pub fn parse_tool_spec(spec: &str) -> anyhow::Result<(String, VersionReq)> {
     if let Some((id, ver_str)) = spec.split_once('@') {
         let req = if ver_str == "latest" {
