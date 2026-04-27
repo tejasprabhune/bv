@@ -225,13 +225,6 @@ fn kv_dim(key: &str, value: &str) {
     );
 }
 
-fn kv_err(key: &str, value: &str) {
-    eprintln!(
-        "    {:<KEY_W$} {}",
-        key.if_supports_color(Stream::Stderr, |t| t.red().bold().to_string()),
-        value.if_supports_color(Stream::Stderr, |t| t.red().to_string())
-    );
-}
 
 // Filesystem helpers
 

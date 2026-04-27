@@ -119,10 +119,10 @@ struct SearchEntry {
 
 fn load_entries(index: &GitIndex) -> Vec<SearchEntry> {
     let json_path = index.local_path().join("index.json");
-    if let Ok(content) = std::fs::read_to_string(&json_path) {
-        if let Ok(idx) = serde_json::from_str::<SearchIndex>(&content) {
-            return idx.tools;
-        }
+    if let Ok(content) = std::fs::read_to_string(&json_path)
+        && let Ok(idx) = serde_json::from_str::<SearchIndex>(&content)
+    {
+        return idx.tools;
     }
 
     // Fallback: derive from manifest list when index.json is absent.

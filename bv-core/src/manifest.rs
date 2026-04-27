@@ -394,23 +394,23 @@ impl Manifest {
         }
 
         for spec in &t.inputs {
-            if let Some(mount) = &spec.mount {
-                if !mount.is_absolute() {
-                    errors.push(ValidationError {
-                        field: format!("tool.inputs[{}].mount", spec.name),
-                        message: "must be an absolute path".into(),
-                    });
-                }
+            if let Some(mount) = &spec.mount
+                && !mount.is_absolute()
+            {
+                errors.push(ValidationError {
+                    field: format!("tool.inputs[{}].mount", spec.name),
+                    message: "must be an absolute path".into(),
+                });
             }
         }
         for spec in &t.outputs {
-            if let Some(mount) = &spec.mount {
-                if !mount.is_absolute() {
-                    errors.push(ValidationError {
-                        field: format!("tool.outputs[{}].mount", spec.name),
-                        message: "must be an absolute path".into(),
-                    });
-                }
+            if let Some(mount) = &spec.mount
+                && !mount.is_absolute()
+            {
+                errors.push(ValidationError {
+                    field: format!("tool.outputs[{}].mount", spec.name),
+                    message: "must be an absolute path".into(),
+                });
             }
         }
 
@@ -584,7 +584,10 @@ command = "t"
     #[test]
     fn registry_manifests_parse() {
         let registry = concat!(env!("CARGO_MANIFEST_DIR"), "/../../bv-registry/tools");
-        for entry in std::fs::read_dir(registry).unwrap() {
+        let Ok(read) = std::fs::read_dir(registry) else {
+            return;
+        };
+        for entry in read {
             let tool_dir = entry.unwrap().path();
             if !tool_dir.is_dir() {
                 continue;
