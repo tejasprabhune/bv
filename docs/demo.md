@@ -240,11 +240,11 @@ Show the CI commands:
 | Step | Duration |
 |------|----------|
 | `bv doctor` | < 1 s |
-| `bv add blast` | 30–60 s (Docker pull) |
-| `bv run blast -- blastn -version` | 2–5 s |
-| `bv add hmmer mmseqs2` | 30–90 s (parallel pulls) |
-| `bv add alphafold --ignore-hardware` | 60–300 s (8 GB image) |
-| `bv data fetch pdbaa --yes` | 30–120 s (70 MB) |
+| `bv add blast` | 30-60 s (Docker pull) |
+| `bv run blast -- blastn -version` | 2-5 s |
+| `bv add hmmer mmseqs2` | 30-90 s (parallel pulls) |
+| `bv add alphafold --ignore-hardware` | 60-300 s (8 GB image) |
+| `bv data fetch pdbaa --yes` | 30-120 s (70 MB) |
 | `bv list` | < 1 s |
 | `bv sync` (warm Docker cache) | < 5 s per tool |
 

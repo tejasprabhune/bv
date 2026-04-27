@@ -3,6 +3,7 @@ mod commands;
 mod errors;
 mod ops;
 mod progress;
+mod publish;
 mod registry;
 
 use clap::Parser;
@@ -43,5 +44,31 @@ async fn main() -> anyhow::Result<()> {
         Commands::Doctor => commands::doctor::run(),
         Commands::Data(dc) => commands::data_cmd(dc).await,
         Commands::Cache(cache_cmd) => commands::cache(cache_cmd),
+        Commands::Publish {
+            source,
+            tool_name,
+            tool_version,
+            non_interactive,
+            no_push,
+            no_pr,
+            github_token,
+            ghcr_token,
+            registry_repo,
+            platform,
+        } => {
+            publish::run(publish::PublishOpts {
+                source: source.clone(),
+                tool_name: tool_name.clone(),
+                version: tool_version.clone(),
+                non_interactive: *non_interactive,
+                no_push: *no_push,
+                no_pr: *no_pr,
+                github_token: github_token.clone(),
+                ghcr_token: ghcr_token.clone(),
+                registry_repo: registry_repo.clone(),
+                platform: platform.clone(),
+            })
+            .await
+        }
     }
 }

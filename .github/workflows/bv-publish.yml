@@ -1,0 +1,56 @@
+name: bv-publish
+
+on:
+  workflow_call:
+    inputs:
+      tool-name:
+        required: true
+        type: string
+        description: "Name to register in bv-registry (e.g. quickvina)"
+      version:
+        required: false
+        type: string
+        description: "Version string; defaults to the git tag with the leading 'v' stripped"
+      registry-repo:
+        required: false
+        type: string
+        default: mlberkeley/bv-registry
+        description: "Target bv-registry repository in owner/repo form"
+      platform:
+        required: false
+        type: string
+        default: amd64
+        description: "Docker build platform (amd64 or arm64)"
+    secrets:
+      GHCR_TOKEN:
+        required: true
+        description: "GitHub PAT with write:packages scope for pushing to GHCR"
+      BV_REGISTRY_TOKEN:
+        required: true
+        description: "GitHub PAT with repo scope for opening PRs to bv-registry"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bv
+        run: |
+          curl -sSfL \
+            https://github.com/mlberkeley/bv/releases/latest/download/bv-linux-x86_64 \
+            -o /tmp/bv
+          chmod +x /tmp/bv
+          sudo mv /tmp/bv /usr/local/bin/bv
+
+      - name: Publish tool to bv-registry
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.BV_REGISTRY_TOKEN }}
+        run: |
+          bv publish . \
+            --tool-name "${{ inputs.tool-name }}" \
+            ${{ inputs.version != '' && format('--tool-version {0}', inputs.version) || '' }} \
+            --registry-repo "${{ inputs.registry-repo }}" \
+            --platform "${{ inputs.platform }}" \
+            --non-interactive

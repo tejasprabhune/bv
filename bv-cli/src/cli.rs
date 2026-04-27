@@ -96,6 +96,39 @@ pub enum Commands {
     /// Local cache management.
     #[command(subcommand)]
     Cache(CacheCommands),
+
+    /// Build and publish a tool to bv-registry (opens a PR).
+    Publish {
+        /// Local directory or GitHub repo, e.g. `./my-tool` or `github:user/repo` or `github:user/repo@v2.0`.
+        source: String,
+        /// Tool name override (also settable in bv-publish.toml).
+        #[arg(long)]
+        tool_name: Option<String>,
+        /// Version override (also settable in bv-publish.toml).
+        #[arg(long)]
+        tool_version: Option<String>,
+        /// Skip all interactive prompts; requires bv-publish.toml or explicit flags.
+        #[arg(long)]
+        non_interactive: bool,
+        /// Build the image but do not push to GHCR.
+        #[arg(long)]
+        no_push: bool,
+        /// Push the image but do not open a PR.
+        #[arg(long)]
+        no_pr: bool,
+        /// GitHub PAT with `repo` and `write:packages` scopes. Reads GITHUB_TOKEN env var.
+        #[arg(long, env = "GITHUB_TOKEN")]
+        github_token: Option<String>,
+        /// GHCR token override. Falls back to --github-token when absent.
+        #[arg(long, env = "GHCR_TOKEN")]
+        ghcr_token: Option<String>,
+        /// Target registry repository in `owner/repo` form.
+        #[arg(long, default_value = "mlberkeley/bv-registry")]
+        registry_repo: String,
+        /// Docker build platform.
+        #[arg(long, default_value = "amd64")]
+        platform: String,
+    },
 }
 
 #[derive(Subcommand)]
