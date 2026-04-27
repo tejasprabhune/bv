@@ -92,13 +92,11 @@ impl ContainerRuntime for ApptainerRuntime {
 
         // Pull to a temp path keyed by the registry reference, then rename
         // into <digest>.sif so subsequent lookups by digest find it.
-        std::fs::create_dir_all(&self.sif_dir).map_err(|e| {
-            BvError::RuntimeError(format!("failed to create SIF cache dir: {e}"))
-        })?;
-        let staging = self.sif_dir.join(format!(
-            ".pull-{}.sif",
-            std::process::id()
-        ));
+        std::fs::create_dir_all(&self.sif_dir)
+            .map_err(|e| BvError::RuntimeError(format!("failed to create SIF cache dir: {e}")))?;
+        let staging = self
+            .sif_dir
+            .join(format!(".pull-{}.sif", std::process::id()));
 
         progress.update(&format!("Pulling {reference} as SIF"), None, None);
         {
