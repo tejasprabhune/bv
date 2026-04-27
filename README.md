@@ -431,14 +431,14 @@ image_reference = "ncbi/blast:2.15.0"
 image_digest = "sha256:abc123..."
 manifest_sha256 = "sha256:def456..."
 resolved_at = "2024-01-15T10:00:00Z"
-binaries = ["blastn", "blastp", "makeblastdb", "tblastn", ...]
+binaries = ["blastn", "blastp", "makeblastdb", "tblastn", "tblastx"]
 
 [tools.hmmer]
 tool_id = "hmmer"
 version = "3.3.2"
 image_reference = "quay.io/biocontainers/hmmer:3.3.2--h87f3376_2"
 image_digest = "sha256:789abc..."
-binaries = ["hmmbuild", "hmmsearch", "hmmscan", "jackhmmer", ...]
+binaries = ["hmmbuild", "hmmsearch", "hmmscan", "jackhmmer", "phmmer"]
 
 [binary_index]
 blastn = "blast"

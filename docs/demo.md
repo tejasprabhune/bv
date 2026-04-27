@@ -147,7 +147,7 @@ tool_id = "blast"
 version = "2.15.0"
 image_reference = "ncbi/blast:2.15.0"
 image_digest = "sha256:abc123..."
-binaries = ["blastn", "blastp", "makeblastdb", ...]
+binaries = ["blastn", "blastp", "makeblastdb", "tblastn", "tblastx"]
 
 [tools.colabfold]
 tool_id = "colabfold"
@@ -160,8 +160,8 @@ binaries = ["colabfold_batch"]
 blastn = "blast"
 blastp = "blast"
 makeblastdb = "blast"
+# ... (one entry per binary)
 colabfold_batch = "colabfold"
-...
 ```
 
 Both files go into git. Any collaborator with a GPU can run `bv sync` to reproduce the exact same images by digest, and the binary index is rebuilt from the lock automatically.
