@@ -11,14 +11,14 @@ pub fn pull_as_sif(image: &OciRef, sif_path: &Path, apptainer_bin: &str) -> Resu
             .map_err(|e| BvError::RuntimeError(format!("failed to create SIF cache dir: {e}")))?;
     }
 
-    let oci_uri = oci_uri(image);
+    let uri = registry_uri(image);
 
     let status = Command::new(apptainer_bin)
         .args([
             "pull",
             "--force",
             sif_path.to_string_lossy().as_ref(),
-            &oci_uri,
+            &uri,
         ])
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -30,19 +30,24 @@ pub fn pull_as_sif(image: &OciRef, sif_path: &Path, apptainer_bin: &str) -> Resu
 
     if !status.success() {
         return Err(BvError::RuntimeError(format!(
-            "failed to pull SIF for '{oci_uri}' (exit {})",
+            "failed to pull SIF for '{uri}' (exit {})",
             status.code().unwrap_or(-1)
         )));
     }
     Ok(())
 }
 
-/// Build the `oci://` URI that Apptainer understands.
-pub fn oci_uri(image: &OciRef) -> String {
-    let mut uri = format!("oci://{}/{}", image.registry, image.repository);
-    if image.registry == "docker.io" {
-        uri = format!("docker://{}", image.repository);
-    }
+/// Build the `docker://` URI that Apptainer uses to pull from an OCI registry.
+///
+/// Apptainer's `oci://` scheme refers to a local OCI image layout on disk;
+/// remote registry pulls (ghcr.io, quay.io, docker.io, ...) all go through
+/// `docker://`. The docker.io registry is implicit, so we omit it.
+pub fn registry_uri(image: &OciRef) -> String {
+    let mut uri = if image.registry == "docker.io" {
+        format!("docker://{}", image.repository)
+    } else {
+        format!("docker://{}/{}", image.registry, image.repository)
+    };
     if let Some(digest) = &image.digest {
         uri.push('@');
         uri.push_str(digest);

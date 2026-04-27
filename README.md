@@ -17,7 +17,20 @@ bv sync                         # reproduce the exact environment anywhere
 
 Requires Docker or Apptainer/Singularity and `git`. No other dependencies.
 
-### Install
+### Install a runtime
+
+Pick whichever fits your machine. Docker is typical on laptops; Apptainer is typical on shared HPC nodes.
+
+```sh
+# Docker (rootless, Linux). On a GPU box you'll also want nvidia-container-toolkit.
+curl -fsSL https://get.docker.com/rootless | sh
+systemctl --user enable --now docker
+
+# Apptainer (no root needed, works on most HPC clusters)
+conda install -c conda-forge apptainer
+```
+
+### Install bv
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mlberkeley/bv/main/install.sh | sh

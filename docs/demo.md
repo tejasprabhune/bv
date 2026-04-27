@@ -8,13 +8,30 @@ Work with protein folding in under 3 min with `bv`. You'll need a GPU for this d
 - `bv` installed (`cargo install biov` or from a release binary)
 - A machine with an NVIDIA GPU (>= 8 GB VRAM, CUDA 12) for ColabFold
 
+### Install a runtime
+
+Pick whichever fits your machine. Docker is typical on laptops; Apptainer is typical on shared HPC nodes.
+
+```sh
+# Docker (rootless, Linux). On a GPU box you'll also want nvidia-container-toolkit.
+curl -fsSL https://get.docker.com/rootless | sh
+systemctl --user enable --now docker
+
+# Apptainer (no root needed, works on most HPC clusters)
+conda install -c conda-forge apptainer
+```
+
 ## tl;dr
 
 ```sh
-# install docker (follow this if you don't have root access)
+# install docker
+# you'll need nvidia-ctk installed as well
 curl -fsSL https://get.docker.com/rootless | sh
 systemctl --user enable docker
 systemctl --user start docker
+
+# or, install apptainer
+conda install -c conda-forge apptainer
 
 # install bv (one of the following)
 curl -fsSL https://raw.githubusercontent.com/mlberkeley/bv/main/install.sh | sh
