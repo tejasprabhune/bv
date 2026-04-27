@@ -303,6 +303,13 @@ pub struct ToolManifest {
     #[serde(default)]
     pub outputs: Vec<IoSpec>,
     pub entrypoint: EntrypointSpec,
+    /// Container paths the tool writes to during normal execution and that
+    /// should therefore be bound to writable host directories. Critical on
+    /// apptainer (read-only SIF root), nice-to-have on docker (lets caches
+    /// outlive `docker rm`). Tool authors declare these; users can override
+    /// the host side via `[[cache]]` in `bv.toml`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cache_paths: Vec<String>,
     /// Binary names this tool exposes on PATH inside its container.
     /// Omit for single-binary tools; defaults to `[entrypoint.command]`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

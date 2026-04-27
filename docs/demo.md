@@ -46,9 +46,16 @@ from pathlib import Path
 
 Path("trpcage.fasta").write_text(">trp-cage\nNLYIQWLKDGGPSSGRPPPS\n")
 Path("output").mkdir(exist_ok=True)
+Path("cache").mkdir(exist_ok=True)  # apptainer's container FS is read-only;
+                                    # write model weights into the bind-mounted /workspace
 
 cmd = ["colabfold_batch"] if shutil.which("colabfold_batch") else ["bv", "run", "colabfold_batch"]
-subprocess.run(cmd + ["--num-recycle", "3", "/workspace/trpcage.fasta", "/workspace/output"], check=True)
+subprocess.run(cmd + [
+    "--data", "/workspace/cache",
+    "--num-recycle", "3",
+    "/workspace/trpcage.fasta",
+    "/workspace/output",
+], check=True)
 
 scores = sorted(Path("output").glob("*scores*.json"))[0]
 plddt = json.loads(scores.read_text())["plddt"]
@@ -233,7 +240,7 @@ EOF
 bv exec python3 fold.py
 ```
 
-The script writes the FASTA, calls `colabfold_batch` via subprocess (resolved through the `.bv/bin/` shim), and prints the mean per-residue confidence from the result JSON.
+The script writes the FASTA, calls `colabfold_batch` via subprocess (resolved through the `.bv/bin/` shim), and prints the mean per-residue confidence from the result JSON. ColabFold's model weights (~3.5 GB) download into `~/.cache/bv/colabfold/cache/` on the host: bv auto-binds well-known cache paths (`/cache`, `/root/.cache`) so apptainer's read-only SIF doesn't block tools that need scratch space. See [Custom mounts](#custom-mounts) below to override or add paths.
 
 Expected output:
 
@@ -245,6 +252,30 @@ mean pLDDT: 94.9
 ```
 
 `bv exec` uses `exec(2)` on Unix, so the Python process replaces bv in the process table. Signals, exit codes, and HPC schedulers all see Python directly.
+
+### Custom caches
+
+The set of writable cache directories bv binds into the container comes from three layers, in resolution order:
+
+1. **Tool manifest** — `cache_paths` in the registry entry. Tool authors declare what the image needs; users get it for free.
+2. **`[[cache]]` in `bv.toml`** — your overrides for this project. Adds new paths, or points an existing container path at a different host directory.
+3. **Apptainer fallbacks** — bv auto-binds `/cache` and `/root/.cache` for tools whose manifest hasn't declared cache paths yet. Skipped on docker (its writable upper layer already covers this).
+
+Default host path is `~/.cache/bv/<tool>/<slug>`. Override with:
+
+```toml
+# redirect colabfold's weights to a shared NFS cache
+[[cache]]
+match = "colabfold"
+container_path = "/cache/colabfold"
+host_path = "/srv/shared/colabfold-weights"
+
+# add an extra path for every tool
+[[cache]]
+match = "*"
+container_path = "/tmp/scratch"
+host_path = "~/.cache/bv/{tool}/scratch"
+```
 
 ## Part 7: Reproduction on another machine (45 s)
 

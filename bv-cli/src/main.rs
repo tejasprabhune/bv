@@ -1,6 +1,7 @@
 mod cli;
 mod commands;
 mod errors;
+mod mounts;
 mod ops;
 mod progress;
 mod publish;

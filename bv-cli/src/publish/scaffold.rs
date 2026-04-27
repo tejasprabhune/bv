@@ -115,6 +115,7 @@ impl ScaffoldResult {
                     args_template: self.args_template.clone(),
                     env: Default::default(),
                 },
+                cache_paths: vec![],
                 binaries: None,
                 test: None,
                 signatures: None,

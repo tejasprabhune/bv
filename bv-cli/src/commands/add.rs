@@ -53,6 +53,7 @@ pub async fn run(
             hardware: Default::default(),
             runtime: Default::default(),
             binary_overrides: HashMap::new(),
+            caches: Vec::new(),
         }
     };
 

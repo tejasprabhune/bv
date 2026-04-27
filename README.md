@@ -297,6 +297,41 @@ GPU support works on both backends:
 
 The manifest declares the GPU requirement; the runtime handles the flag automatically.
 
+### Cache mounts
+
+Apptainer runs containers with a read-only root filesystem, so any tool that downloads model weights or scratches to disk inside the image will fail (e.g. ColabFold writing to `/cache/colabfold`). bv binds writable host directories into the container for paths that the tool needs to write. The set of paths is resolved in three layers:
+
+1. **Tool manifest** (`cache_paths` in the registry entry) — the tool author's authoritative list. ColabFold's manifest declares `cache_paths = ["/cache/colabfold"]`.
+2. **User overrides** (`[[cache]]` in `bv.toml`) — point any container path at a different host directory (e.g. a shared NFS cache).
+3. **Apptainer fallbacks** — for tools whose manifest hasn't declared any cache paths yet, bv auto-binds the well-known `/cache` and `/root/.cache` so common bioconda images don't fail outright.
+
+Each container path defaults to a host directory under `~/.cache/bv/<tool>/`. Docker skips the apptainer fallbacks (writable upper layer covers the same need); manifest and user entries apply on both backends.
+
+User overrides in `bv.toml`:
+
+```toml
+# applies to every tool; {tool} is replaced with the tool id
+[[cache]]
+match = "*"
+container_path = "/cache"
+host_path = "~/.cache/bv/{tool}"
+
+# tool-specific: redirect colabfold weights to a shared cache
+[[cache]]
+match = "colabfold"
+container_path = "/cache/colabfold"
+host_path = "/srv/shared/colabfold-weights"
+```
+
+Tool authors declare what their image needs in the registry manifest:
+
+```toml
+[tool]
+id = "colabfold"
+# ...
+cache_paths = ["/cache/colabfold"]
+```
+
 ---
 
 ## Conformance testing

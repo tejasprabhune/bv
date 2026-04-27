@@ -98,12 +98,24 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
         args.to_vec()
     };
 
+    // Resolve runtime up front so the mount-building code can ask which backend
+    // it's targeting (apptainer needs writable bind mounts for caches that
+    // docker would otherwise satisfy via its writable upper layer).
+    let bv_toml = bv_core::project::BvToml::from_path(&cwd.join("bv.toml")).ok();
+    let runtime = crate::runtime_select::resolve_runtime(backend, bv_toml.as_ref())?;
+
     // Build reference data mounts; fail fast on missing required datasets.
     let mut mounts = vec![Mount {
         host_path: cwd.clone(),
         container_path: PathBuf::from("/workspace"),
         read_only: false,
     }];
+    mounts.extend(crate::mounts::cache_mounts(
+        &tool_id,
+        runtime.name(),
+        &manifest.tool,
+        bv_toml.as_ref(),
+    )?);
     let mut missing_required: Vec<String> = Vec::new();
     for (key, spec) in &manifest.tool.reference_data {
         let data_dir = cache.data_dir(&spec.id, &spec.version);
@@ -150,9 +162,6 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
         },
         working_dir: Some(PathBuf::from("/workspace")),
     };
-
-    let bv_toml = bv_core::project::BvToml::from_path(&cwd.join("bv.toml")).ok();
-    let runtime = crate::runtime_select::resolve_runtime(backend, bv_toml.as_ref())?;
 
     runtime
         .health_check()

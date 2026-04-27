@@ -48,6 +48,31 @@ pub struct RuntimeConfig {
     pub backend: Option<String>,
 }
 
+/// A writable cache directory bound into the container at runtime.
+///
+/// Used to persist tool scratch state (model weights, downloaded indices,
+/// etc.) across runs, and to satisfy tools that write inside the image —
+/// which apptainer's read-only SIF would otherwise reject.
+///
+/// ```toml
+/// [[cache]]
+/// match = "*"                       # tool id, or "*" for all tools
+/// container_path = "/cache"
+/// host_path = "~/.cache/bv/{tool}"  # `{tool}` is replaced with the tool id
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheMount {
+    /// Tool id this cache applies to. `"*"` matches every tool.
+    #[serde(rename = "match", default = "default_match")]
+    pub tool_match: String,
+    pub container_path: String,
+    pub host_path: String,
+}
+
+fn default_match() -> String {
+    "*".to_string()
+}
+
 /// Contents of `bv.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BvToml {
@@ -66,6 +91,12 @@ pub struct BvToml {
     /// Maps binary name to the tool id that should own the shim.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub binary_overrides: HashMap<String, String>,
+    /// User-declared cache mounts, applied to every `bv run` invocation
+    /// whose tool id matches `match`. Persists scratch state (model weights,
+    /// downloaded indices) across runs. User entries override the host_path
+    /// of any matching cache declared by the tool's manifest.
+    #[serde(default, rename = "cache", skip_serializing_if = "Vec::is_empty")]
+    pub caches: Vec<CacheMount>,
 }
 
 fn runtime_config_is_default(rc: &RuntimeConfig) -> bool {
