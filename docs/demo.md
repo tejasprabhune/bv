@@ -11,6 +11,11 @@ Work with protein folding in under 3 min with `bv`. You'll need a GPU for this d
 ## tl;dr
 
 ```sh
+# install docker (follow this if you don't have root access)
+curl -fsSL https://get.docker.com/rootless | sh
+systemctl --user enable docker
+systemctl --user start docker
+
 # install bv (one of the following)
 curl -fsSL https://raw.githubusercontent.com/mlberkeley/bv/main/install.sh | sh
 cargo install biov
