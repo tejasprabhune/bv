@@ -9,7 +9,7 @@ use bv_runtime::{
     RunOutcome, RunSpec, RuntimeInfo,
 };
 
-use crate::cache::{file_sha256, sif_path};
+use crate::cache::{file_sha256, sif_path_for_digest};
 use crate::gpu::nv_args;
 use crate::image::pull_as_sif;
 use crate::mount::bind_args;
@@ -40,8 +40,8 @@ impl ApptainerRuntime {
         }
     }
 
-    fn sif_path_for(&self, reference: &str) -> PathBuf {
-        sif_path(&self.sif_dir, reference)
+    fn sif_for_digest(&self, digest: &str) -> PathBuf {
+        sif_path_for_digest(&self.sif_dir, digest)
     }
 }
 
@@ -79,23 +79,48 @@ impl ContainerRuntime for ApptainerRuntime {
 
     fn pull(&self, image: &OciRef, progress: &dyn ProgressReporter) -> Result<ImageDigest> {
         let reference = image.to_string();
-        let sif = self.sif_path_for(&reference);
 
-        if sif.exists() {
-            progress.finish(&format!("SIF already cached for {reference}"));
-            let digest = file_sha256(&sif)
-                .map_err(|e| BvError::RuntimeError(format!("failed to hash cached SIF: {e}")))?;
-            return Ok(ImageDigest(digest));
+        // Fast path: caller already knows the digest (e.g. `bv sync` from a
+        // lockfile) and the SIF is on disk under its canonical key.
+        if let Some(known) = &image.digest {
+            let canonical = self.sif_for_digest(known);
+            if canonical.exists() {
+                progress.finish(&format!("SIF already cached for {reference}"));
+                return Ok(ImageDigest(known.clone()));
+            }
         }
+
+        // Pull to a temp path keyed by the registry reference, then rename
+        // into <digest>.sif so subsequent lookups by digest find it.
+        std::fs::create_dir_all(&self.sif_dir).map_err(|e| {
+            BvError::RuntimeError(format!("failed to create SIF cache dir: {e}"))
+        })?;
+        let staging = self.sif_dir.join(format!(
+            ".pull-{}.sif",
+            std::process::id()
+        ));
 
         progress.update(&format!("Pulling {reference} as SIF"), None, None);
         {
             let _paused = progress.pause();
-            pull_as_sif(image, &sif, &self.bin)?;
+            pull_as_sif(image, &staging, &self.bin)?;
         }
 
-        let digest = file_sha256(&sif)
+        let digest = file_sha256(&staging)
             .map_err(|e| BvError::RuntimeError(format!("failed to hash SIF: {e}")))?;
+        let canonical = self.sif_for_digest(&digest);
+        if canonical.exists() {
+            // Another concurrent pull beat us to it.
+            let _ = std::fs::remove_file(&staging);
+        } else if let Err(e) = std::fs::rename(&staging, &canonical) {
+            // Cross-device or other rename failure: fall back to copy + remove.
+            std::fs::copy(&staging, &canonical).map_err(|e2| {
+                BvError::RuntimeError(format!(
+                    "failed to place SIF in cache (rename: {e}; copy: {e2})"
+                ))
+            })?;
+            let _ = std::fs::remove_file(&staging);
+        }
         progress.finish(&format!("Pulled {reference}"));
         Ok(ImageDigest(digest))
     }
@@ -103,7 +128,12 @@ impl ContainerRuntime for ApptainerRuntime {
     fn run(&self, spec: &RunSpec) -> Result<RunOutcome> {
         let start = Instant::now();
         let reference = spec.image.to_string();
-        let sif = self.sif_path_for(&reference);
+        let digest = spec.image.digest.as_deref().ok_or_else(|| {
+            BvError::RuntimeError(format!(
+                "apptainer run requires a pinned digest for '{reference}'"
+            ))
+        })?;
+        let sif = self.sif_for_digest(digest);
 
         if !sif.exists() {
             return Err(BvError::RuntimeError(format!(
@@ -152,9 +182,7 @@ impl ContainerRuntime for ApptainerRuntime {
     }
 
     fn inspect(&self, digest: &ImageDigest) -> Result<ImageMetadata> {
-        let sif = self
-            .sif_dir
-            .join(format!("{}.sif", digest.0.replace(':', "_")));
+        let sif = self.sif_for_digest(&digest.0);
         let size_bytes = if sif.exists() {
             std::fs::metadata(&sif).ok().map(|m| m.len())
         } else {
@@ -167,8 +195,8 @@ impl ContainerRuntime for ApptainerRuntime {
         })
     }
 
-    fn is_locally_available(&self, image_ref: &str, _digest: &str) -> bool {
-        self.sif_path_for(image_ref).exists()
+    fn is_locally_available(&self, _image_ref: &str, digest: &str) -> bool {
+        self.sif_for_digest(digest).exists()
     }
 
     fn gpu_args(&self, profile: &GpuProfile) -> Vec<String> {
