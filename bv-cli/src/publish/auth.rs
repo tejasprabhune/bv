@@ -15,10 +15,20 @@ pub fn resolve_github_token(flag: Option<&str>, non_interactive: bool) -> anyhow
     if non_interactive {
         anyhow::bail!(
             "no GitHub token found\n  \
-             Set GITHUB_TOKEN, pass --github-token, or run: gh auth login"
+             bv publish needs a GitHub token with `repo` and `write:packages` scopes to push the image to GHCR and open the registry PR.\n  \
+             Get one at https://github.com/settings/tokens/new?scopes=repo,write:packages&description=bv-publish\n  \
+             Then either:\n    \
+                 - export GITHUB_TOKEN=<token>\n    \
+                 - pass --github-token <token>\n    \
+                 - run `gh auth login` (if you have the GitHub CLI)"
         );
     }
-    let token = prompt_token("GitHub personal access token (needs repo + write:packages scopes)")?;
+    eprintln!("  bv publish needs a GitHub token with `repo` and `write:packages` scopes.");
+    eprintln!(
+        "  Generate one at: https://github.com/settings/tokens/new?scopes=repo,write:packages&description=bv-publish"
+    );
+    eprintln!("  Or run `gh auth login` and re-run this command.");
+    let token = prompt_token("Paste GitHub token")?;
     if dialoguer::Confirm::new()
         .with_prompt("Save token to OS keychain for future use?")
         .default(true)
