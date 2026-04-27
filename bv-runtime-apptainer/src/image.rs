@@ -5,7 +5,7 @@ use std::thread;
 use bv_core::error::{BvError, Result};
 use bv_runtime::OciRef;
 
-use crate::tail::{make_channel, spawn_reader, RollingTail};
+use crate::tail::{RollingTail, make_channel, spawn_reader};
 
 /// Pull an OCI image as a SIF file. Returns the path to the SIF file.
 pub fn pull_as_sif(image: &OciRef, sif_path: &Path, apptainer_bin: &str) -> Result<()> {
@@ -17,12 +17,7 @@ pub fn pull_as_sif(image: &OciRef, sif_path: &Path, apptainer_bin: &str) -> Resu
     let uri = registry_uri(image);
 
     let mut child = Command::new(apptainer_bin)
-        .args([
-            "pull",
-            "--force",
-            sif_path.to_string_lossy().as_ref(),
-            &uri,
-        ])
+        .args(["pull", "--force", sif_path.to_string_lossy().as_ref(), &uri])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

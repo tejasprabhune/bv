@@ -39,7 +39,22 @@ cargo install biov
 
 mkdir protein-demo && cd protein-demo
 bv add colabfold
-# copy fold.py from this docs dir into protein-demo/
+
+cat > fold.py << 'EOF'
+import subprocess, json, shutil
+from pathlib import Path
+
+Path("trpcage.fasta").write_text(">trp-cage\nNLYIQWLKDGGPSSGRPPPS\n")
+Path("output").mkdir(exist_ok=True)
+
+cmd = ["colabfold_batch"] if shutil.which("colabfold_batch") else ["bv", "run", "colabfold_batch"]
+subprocess.run(cmd + ["--num-recycle", "3", "/workspace/trpcage.fasta", "/workspace/output"], check=True)
+
+scores = sorted(Path("output").glob("*scores*.json"))[0]
+plddt = json.loads(scores.read_text())["plddt"]
+print(f"mean pLDDT: {sum(plddt)/len(plddt):.1f}")
+EOF
+
 bv exec python3 fold.py
 
 git add bv.toml bv.lock
@@ -197,38 +212,36 @@ Exiting returns to the original shell cleanly. No deactivation needed.
 
 ## Part 6: Run the fold script with bv exec
 
-Scripts and pipelines use `bv exec` to get the same PATH injection without an interactive shell:
+Scripts and pipelines use `bv exec` to get the same PATH injection without an interactive shell. Drop a small `fold.py` into the project:
 
 ```sh
+cat > fold.py << 'EOF'
+import subprocess, json, shutil
+from pathlib import Path
+
+Path("trpcage.fasta").write_text(">trp-cage\nNLYIQWLKDGGPSSGRPPPS\n")
+Path("output").mkdir(exist_ok=True)
+
+cmd = ["colabfold_batch"] if shutil.which("colabfold_batch") else ["bv", "run", "colabfold_batch"]
+subprocess.run(cmd + ["--num-recycle", "3", "/workspace/trpcage.fasta", "/workspace/output"], check=True)
+
+scores = sorted(Path("output").glob("*scores*.json"))[0]
+plddt = json.loads(scores.read_text())["plddt"]
+print(f"mean pLDDT: {sum(plddt)/len(plddt):.1f}")
+EOF
+
 bv exec python3 fold.py
 ```
 
-`fold.py` (under `docs/fold.py`) writes the FASTA, calls `colabfold_batch` via subprocess (which resolves through the shim), and prints per-residue confidence from the result JSON.
+The script writes the FASTA, calls `colabfold_batch` via subprocess (resolved through the `.bv/bin/` shim), and prints the mean per-residue confidence from the result JSON.
 
 Expected output:
 
 ```
-Running ColabFold on trp-cage (20 aa)...
-Output directory: output/
-
 2026-04-27 19:27:16,481 Running colabfold 1.6.0
 Downloading alphafold2_ptm weights to /cache/colabfold: 100%|██████████| 3.47G/3.47G [00:14<00:00, 259MB/s]
-
 ...
-
-Results:
-  trp-cage_unrelaxed_rank_001_alphafold2_ptm_model_5_seed_000.pdb
-  ...
-  trp-cage_scores_rank_003_alphafold2_ptm_model_3_seed_000.json
-
-pLDDT scores (per residue):
-  N   87.8
-  ...
-  S   89.2
-
-Mean pLDDT: 94.9  (> 70 is considered confident)
-
-Top structure written to: output/trp-cage_unrelaxed_rank_001_alphafold2_ptm_model_5_seed_000.pdb
+mean pLDDT: 94.9
 ```
 
 `bv exec` uses `exec(2)` on Unix, so the Python process replaces bv in the process table. Signals, exit codes, and HPC schedulers all see Python directly.

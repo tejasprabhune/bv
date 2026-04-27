@@ -44,7 +44,10 @@ impl ProgressReporter for CliProgressReporter {
         let saved = self.bar.message();
         self.bar.set_message(String::new());
         self.bar.tick();
-        Box::new(SpinnerPauseGuard { bar: &self.bar, saved })
+        Box::new(SpinnerPauseGuard {
+            bar: &self.bar,
+            saved,
+        })
     }
 }
 
