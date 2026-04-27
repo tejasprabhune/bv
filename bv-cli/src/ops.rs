@@ -12,7 +12,9 @@ use bv_core::cache::CacheLayout;
 use bv_core::lockfile::{Lockfile, LockfileEntry, LockfileMetadata};
 use bv_core::manifest::Manifest;
 use bv_index::{GitIndex, IndexBackend as _};
-use bv_runtime::{ContainerRuntime, DockerRuntime, OciRef};
+use bv_runtime::{ContainerRuntime, OciRef};
+
+use crate::runtime_select::AnyRuntime;
 
 use crate::commands::add::format_size;
 use crate::progress::CliProgressReporter;
@@ -85,6 +87,7 @@ pub async fn generate_lockfile(
     existing: Option<&Lockfile>,
     hardware_summary: Option<String>,
     mp: &MultiProgress,
+    runtime: &AnyRuntime,
 ) -> anyhow::Result<Lockfile> {
     let mut new_lock = Lockfile {
         version: 1,
@@ -104,10 +107,11 @@ pub async fn generate_lockfile(
         let existing_entry = existing.and_then(|l| l.tools.get(&r.tool_id)).cloned();
         let reporter = CliProgressReporter::for_multi(mp);
         let permit = sem.clone().acquire_owned().await.expect("semaphore closed");
+        let rt = runtime.clone();
 
         join_set.spawn_blocking(move || {
             let _permit = permit;
-            pull_or_reuse(r, existing_entry.as_ref(), &reporter)
+            pull_or_reuse(r, existing_entry.as_ref(), &reporter, &rt)
         });
     }
 
@@ -125,6 +129,7 @@ pub fn pull_or_reuse(
     resolved: ResolvedTool,
     existing: Option<&LockfileEntry>,
     reporter: &CliProgressReporter,
+    runtime: &AnyRuntime,
 ) -> anyhow::Result<LockfileEntry> {
     if let Some(e) = existing {
         let version_matches = e.version == resolved.manifest.tool.version;
@@ -140,7 +145,7 @@ pub fn pull_or_reuse(
     }
 
     let cache = CacheLayout::new();
-    pull_and_make_entry(&resolved, reporter, &cache)
+    pull_and_make_entry(&resolved, reporter, &cache, runtime)
 }
 
 /// Pull an image and build a fully-populated `LockfileEntry`.
@@ -148,6 +153,7 @@ pub fn pull_and_make_entry(
     resolved: &ResolvedTool,
     reporter: &CliProgressReporter,
     cache: &CacheLayout,
+    runtime: &AnyRuntime,
 ) -> anyhow::Result<LockfileEntry> {
     eprintln!(
         "  {} {}",
@@ -156,14 +162,11 @@ pub fn pull_and_make_entry(
             .if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
     );
 
-    let digest = DockerRuntime
+    let digest = runtime
         .pull(&resolved.oci_ref, reporter)
         .with_context(|| format!("failed to pull '{}'", resolved.oci_ref.docker_arg()))?;
 
-    let size_bytes = DockerRuntime
-        .inspect(&digest)
-        .ok()
-        .and_then(|m| m.size_bytes);
+    let size_bytes = runtime.inspect(&digest).ok().and_then(|m| m.size_bytes);
 
     crate::commands::add::cache_manifest(cache, &resolved.manifest)?;
 

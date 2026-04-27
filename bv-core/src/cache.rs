@@ -52,6 +52,11 @@ impl CacheLayout {
         self.root.join("data").join(dataset_id).join(version)
     }
 
+    /// `<root>/sif/` - Apptainer SIF image cache.
+    pub fn sif_dir(&self) -> PathBuf {
+        self.root.join("sif")
+    }
+
     /// `<root>/tmp/` - staging area for atomic writes.
     pub fn tmp_dir(&self) -> PathBuf {
         self.root.join("tmp")

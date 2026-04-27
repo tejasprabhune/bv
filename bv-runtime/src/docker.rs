@@ -11,6 +11,7 @@ use crate::runtime::{
     RunOutcome, RunSpec, RuntimeInfo,
 };
 
+#[derive(Clone)]
 pub struct DockerRuntime;
 
 impl ContainerRuntime for DockerRuntime {

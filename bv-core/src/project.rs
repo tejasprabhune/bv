@@ -40,6 +40,14 @@ pub struct RegistryConfig {
     pub url: String,
 }
 
+/// `[runtime]` block in `bv.toml`. Selects the container backend.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RuntimeConfig {
+    /// `"docker"`, `"apptainer"`, or `"auto"` (default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
+}
+
 /// Contents of `bv.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BvToml {
@@ -52,6 +60,12 @@ pub struct BvToml {
     pub data: HashMap<String, DataDeclaration>,
     #[serde(default)]
     pub hardware: HardwareProfile,
+    #[serde(default, skip_serializing_if = "runtime_config_is_default")]
+    pub runtime: RuntimeConfig,
+}
+
+fn runtime_config_is_default(rc: &RuntimeConfig) -> bool {
+    rc.backend.is_none()
 }
 
 impl BvToml {

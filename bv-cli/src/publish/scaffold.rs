@@ -115,6 +115,8 @@ impl ScaffoldResult {
                     args_template: self.args_template.clone(),
                     env: Default::default(),
                 },
+                test: None,
+                signatures: None,
             },
         };
         m.to_toml_string().map_err(|e| anyhow::anyhow!("{}", e))

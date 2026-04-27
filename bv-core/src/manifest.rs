@@ -232,6 +232,41 @@ pub struct EntrypointSpec {
     pub env: HashMap<String, String>,
 }
 
+/// Canonical inputs and expected outputs used by the conformance test runner.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestSpec {
+    /// Map of port name to a `test://` URI identifying the canonical input.
+    #[serde(default)]
+    pub inputs: std::collections::HashMap<String, String>,
+    /// Port names whose output files must exist and pass type-level checks.
+    #[serde(default)]
+    pub expected_outputs: Vec<String>,
+    /// Additional CLI args appended to the entrypoint during test runs.
+    #[serde(default)]
+    pub extra_args: Vec<String>,
+    /// Seconds before the conformance run is killed.
+    #[serde(default = "default_timeout")]
+    pub timeout_seconds: u64,
+    /// When true, skipped in fast CI and run only on a separate slow schedule.
+    #[serde(default)]
+    pub slow: bool,
+}
+
+fn default_timeout() -> u64 {
+    60
+}
+
+/// Optional Sigstore/cosign signature metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignatureSpec {
+    /// `"sigstore"` to verify the OCI image signature with cosign.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// `"sigstore"` to verify the manifest's commit signature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolManifest {
     pub id: String,
@@ -259,6 +294,12 @@ pub struct ToolManifest {
     #[serde(default)]
     pub outputs: Vec<IoSpec>,
     pub entrypoint: EntrypointSpec,
+    /// Conformance test block; used by `bv conformance check`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test: Option<TestSpec>,
+    /// Sigstore / cosign signature declarations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signatures: Option<SignatureSpec>,
 }
 
 impl ToolManifest {

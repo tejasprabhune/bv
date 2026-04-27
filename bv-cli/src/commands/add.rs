@@ -13,7 +13,7 @@ use bv_core::lockfile::Lockfile;
 use bv_core::manifest::{Manifest, Tier};
 use bv_core::project::{BvLock, BvToml, ProjectMeta, RegistryConfig, ToolDeclaration};
 use bv_index::IndexBackend as _;
-use bv_runtime::{ContainerRuntime, DockerRuntime, OciRef};
+use bv_runtime::{ContainerRuntime, OciRef};
 
 use crate::errors::print_hardware_mismatch;
 use crate::ops;
@@ -24,6 +24,8 @@ pub async fn run(
     registry_flag: Option<&str>,
     ignore_hardware: bool,
     allow_experimental: bool,
+    backend_flag: Option<&str>,
+    require_signed: bool,
 ) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let bv_toml_path = cwd.join("bv.toml");
@@ -49,6 +51,7 @@ pub async fn run(
             tools: vec![],
             data: HashMap::new(),
             hardware: Default::default(),
+            runtime: Default::default(),
         }
     };
 
@@ -110,6 +113,10 @@ pub async fn run(
                 "warning:".if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string()),
                 tool_id
             );
+        }
+
+        if require_signed {
+            verify_signature(&tool_id, &manifest)?;
         }
 
         if let Some(existing) = lockfile.tools.get(&tool_id)
@@ -184,11 +191,11 @@ pub async fn run(
         }
     }
 
-    DockerRuntime
+    let runtime = crate::runtime_select::resolve_runtime(backend_flag, Some(&bv_toml))?;
+    runtime
         .health_check()
-        .context("Docker is not available. Is Docker Desktop running?")?;
+        .map_err(|e| anyhow::anyhow!("runtime not available: {e}"))?;
 
-    // Pull all tools (shared with bv lock/sync via ops).
     let mp = MultiProgress::new();
     let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(3));
     let mut join_set: tokio::task::JoinSet<anyhow::Result<bv_core::lockfile::LockfileEntry>> =
@@ -198,9 +205,10 @@ pub async fn run(
         let existing = lockfile.tools.get(&r.tool_id).cloned();
         let reporter = CliProgressReporter::for_multi(&mp);
         let permit = sem.clone().acquire_owned().await.expect("semaphore closed");
+        let rt = runtime.clone();
         join_set.spawn_blocking(move || {
             let _permit = permit;
-            ops::pull_or_reuse(r, existing.as_ref(), &reporter)
+            ops::pull_or_reuse(r, existing.as_ref(), &reporter, &rt)
         });
     }
 
@@ -335,4 +343,38 @@ pub fn short_digest(digest: &str) -> &str {
         .find(':')
         .and_then(|i| digest.get(i + 1..i + 13))
         .unwrap_or(digest)
+}
+
+fn verify_signature(tool_id: &str, manifest: &Manifest) -> anyhow::Result<()> {
+    let Some(sigs) = &manifest.tool.signatures else {
+        anyhow::bail!(
+            "'{}' does not declare any signatures\n  \
+             The manifest has no [tool.signatures] block. Cannot verify with --require-signed.",
+            tool_id
+        );
+    };
+    if sigs.image.as_deref() != Some("sigstore") {
+        anyhow::bail!("'{}' does not declare a Sigstore image signature", tool_id);
+    }
+    let image_ref = &manifest.tool.image.reference;
+    let status = std::process::Command::new("cosign")
+        .args([
+            "verify",
+            "--certificate-identity-regexp=.*",
+            "--certificate-oidc-issuer-regexp=.*",
+            image_ref,
+        ])
+        .status();
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => anyhow::bail!(
+            "cosign verification failed for '{}' (exit {})",
+            tool_id,
+            s.code().unwrap_or(-1)
+        ),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => anyhow::bail!(
+            "cosign not found; install it from https://docs.sigstore.dev/cosign/installation/"
+        ),
+        Err(e) => anyhow::bail!("cosign failed for '{}': {e}", tool_id),
+    }
 }

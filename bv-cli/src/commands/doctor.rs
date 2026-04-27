@@ -7,6 +7,7 @@ use bv_core::cache::CacheLayout;
 use bv_core::hardware::DetectedHardware;
 use bv_core::project::BvLock;
 use bv_runtime::{ContainerRuntime, DockerRuntime};
+use bv_runtime_apptainer::{ApptainerRuntime, is_available as apptainer_available};
 
 use crate::commands::add::format_size;
 
@@ -27,18 +28,33 @@ pub fn run() -> anyhow::Result<()> {
                 .unwrap_or_default();
             kv("docker", &format!("{}{}", info.version, server));
         }
-        Err(e) => {
-            kv_err("docker", "cannot connect to daemon");
-            eprintln!("    {:KEY_W$} {e}", "");
-            eprintln!(
-                "    {:KEY_W$} {} {}",
-                "",
-                "is Docker Desktop running? try"
-                    .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
-                "open -a Docker".if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
-            );
-            blocking_issues += 1;
+        Err(_) => {
+            kv_dim("docker", "not available");
         }
+    }
+
+    let cache = CacheLayout::new();
+    let apptainer_rt = ApptainerRuntime::new(cache.sif_dir());
+    match apptainer_rt.health_check() {
+        Ok(info) => {
+            kv("apptainer", &info.version);
+        }
+        Err(_) if apptainer_available() => {
+            kv_dim("apptainer", "found but health check failed");
+        }
+        Err(_) => {
+            kv_dim("apptainer", "not available");
+        }
+    }
+
+    if DockerRuntime.health_check().is_err() && !apptainer_available() {
+        eprintln!(
+            "    {:KEY_W$} {}",
+            "",
+            "no container runtime found; install Docker or Apptainer"
+                .if_supports_color(Stream::Stderr, |t| t.red().to_string())
+        );
+        blocking_issues += 1;
     }
 
     section("Hardware");

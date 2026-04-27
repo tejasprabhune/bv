@@ -1,5 +1,5 @@
 [workspace]
-members = ["bv-cli", "bv-core", "bv-runtime", "bv-index", "bv-types"]
+members = ["bv-cli", "bv-core", "bv-runtime", "bv-runtime-apptainer", "bv-index", "bv-types", "bv-conformance"]
 resolver = "2"
 
 [workspace.package]

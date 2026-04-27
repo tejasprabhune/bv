@@ -5,6 +5,7 @@ mod ops;
 mod progress;
 mod publish;
 mod registry;
+mod runtime_select;
 
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -30,15 +31,24 @@ async fn main() -> anyhow::Result<()> {
             registry,
             ignore_hardware,
             allow_experimental,
+            backend,
+            require_signed,
         } => {
             commands::add::run(
                 tools,
                 registry.as_deref(),
                 *ignore_hardware,
                 *allow_experimental,
+                backend.as_deref(),
+                *require_signed,
             )
             .await
         }
+        Commands::Conformance {
+            tool,
+            registry,
+            backend,
+        } => commands::conform::run(tool, registry.as_deref(), backend.as_deref()).await,
         Commands::Search {
             query,
             tier,
@@ -46,16 +56,22 @@ async fn main() -> anyhow::Result<()> {
             limit,
         } => commands::search::run(query, tier.as_deref(), registry.as_deref(), *limit).await,
         Commands::Remove { tool } => commands::remove::run(tool),
-        Commands::Run { tool, args } => commands::run::run(tool, args),
+        Commands::Run {
+            tool,
+            args,
+            backend,
+        } => commands::run::run(tool, args, backend.as_deref()).await,
         Commands::List => commands::list::run(),
         Commands::Show { tool, format } => commands::show::run(tool, format.clone()),
         Commands::Info { tool } => commands::run::info(tool),
         Commands::Lock { check, registry } => {
             commands::lock::run(*check, registry.as_deref()).await
         }
-        Commands::Sync { frozen, registry } => {
-            commands::sync::run(*frozen, registry.as_deref()).await
-        }
+        Commands::Sync {
+            frozen,
+            registry,
+            backend,
+        } => commands::sync::run(*frozen, registry.as_deref(), backend.as_deref()).await,
         Commands::Doctor => commands::doctor::run(),
         Commands::Data(dc) => commands::data_cmd(dc).await,
         Commands::Cache(cache_cmd) => commands::cache(cache_cmd),

@@ -6,9 +6,9 @@ use owo_colors::{OwoColorize, Stream};
 use bv_core::cache::CacheLayout;
 use bv_core::manifest::Manifest;
 use bv_core::project::BvLock;
-use bv_runtime::{ContainerRuntime, DockerRuntime, GpuProfile, Mount, OciRef, RunSpec};
+use bv_runtime::{ContainerRuntime, GpuProfile, Mount, OciRef, RunSpec};
 
-pub fn run(tool: &str, args: &[String]) -> anyhow::Result<()> {
+pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let bv_lock_path = cwd.join("bv.lock");
 
@@ -125,12 +125,12 @@ pub fn run(tool: &str, args: &[String]) -> anyhow::Result<()> {
         working_dir: Some(PathBuf::from("/workspace")),
     };
 
-    let runtime = DockerRuntime;
+    let bv_toml = bv_core::project::BvToml::from_path(&cwd.join("bv.toml")).ok();
+    let runtime = crate::runtime_select::resolve_runtime(backend, bv_toml.as_ref())?;
 
-    // Check Docker is running before we attempt anything.
     runtime
         .health_check()
-        .context("Docker is not available. Is Docker Desktop running?")?;
+        .map_err(|e| anyhow::anyhow!("runtime not available: {e}"))?;
 
     // Check the pinned image is locally present; if not, guide the user to bv sync.
     let base_ref = crate::ops::base_image_ref(&entry.image_reference);

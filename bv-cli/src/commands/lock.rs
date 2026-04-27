@@ -32,8 +32,10 @@ pub async fn run(check: bool, registry_flag: Option<&str>) -> anyhow::Result<()>
 
     let resolved = ops::resolve_all(&bv_toml.tools, &index)?;
 
+    let runtime = crate::runtime_select::resolve_runtime(None, Some(&bv_toml))?;
     let mp = MultiProgress::new();
-    let new_lock = ops::generate_lockfile(resolved, existing_lock.as_ref(), None, &mp).await?;
+    let new_lock =
+        ops::generate_lockfile(resolved, existing_lock.as_ref(), None, &mp, &runtime).await?;
 
     if check {
         match &existing_lock {

@@ -33,6 +33,24 @@ pub enum Commands {
         /// Allow adding tools that are marked `experimental` in the registry.
         #[arg(long)]
         allow_experimental: bool,
+        /// Container backend: `docker`, `apptainer`, or `auto` (default).
+        #[arg(long, env = "BV_BACKEND")]
+        backend: Option<String>,
+        /// Refuse to add tools that do not carry a Sigstore image signature.
+        #[arg(long)]
+        require_signed: bool,
+    },
+
+    /// Verify a tool manifest against the conformance test suite.
+    Conformance {
+        /// Tool identifier.
+        tool: String,
+        /// Registry URL or local path. Overrides BV_REGISTRY env var.
+        #[arg(long, env = "BV_REGISTRY")]
+        registry: Option<String>,
+        /// Container backend: `docker`, `apptainer`, or `auto`.
+        #[arg(long, env = "BV_BACKEND")]
+        backend: Option<String>,
     },
 
     /// Search the registry for tools.
@@ -61,6 +79,9 @@ pub enum Commands {
     Run {
         /// Tool identifier.
         tool: String,
+        /// Container backend: `docker`, `apptainer`, or `auto` (default).
+        #[arg(long, env = "BV_BACKEND")]
+        backend: Option<String>,
         /// Arguments forwarded verbatim to the container entrypoint.
         #[arg(last = true)]
         args: Vec<String>,
@@ -102,6 +123,9 @@ pub enum Commands {
         /// Registry URL (used only for drift detection; optional).
         #[arg(long, env = "BV_REGISTRY")]
         registry: Option<String>,
+        /// Container backend: `docker`, `apptainer`, or `auto` (default).
+        #[arg(long, env = "BV_BACKEND")]
+        backend: Option<String>,
     },
 
     /// Check that the environment is correctly configured.

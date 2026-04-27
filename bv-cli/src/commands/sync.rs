@@ -7,13 +7,17 @@ use semver::VersionReq;
 
 use bv_core::project::{BvLock, BvToml};
 use bv_index::IndexBackend as _;
-use bv_runtime::{ContainerRuntime, DockerRuntime, OciRef};
+use bv_runtime::{ContainerRuntime, OciRef};
 
 use crate::commands::add::short_digest;
 use crate::ops;
 use crate::progress::CliProgressReporter;
 
-pub async fn run(frozen: bool, registry_flag: Option<&str>) -> anyhow::Result<()> {
+pub async fn run(
+    frozen: bool,
+    registry_flag: Option<&str>,
+    backend_flag: Option<&str>,
+) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let bv_lock_path = cwd.join("bv.lock");
 
@@ -42,12 +46,15 @@ pub async fn run(frozen: bool, registry_flag: Option<&str>) -> anyhow::Result<()
     // This is best-effort; we proceed even if the registry is unreachable.
     let drift_warnings = check_drift(&lockfile, registry_flag).unwrap_or_default();
 
-    let runtime = DockerRuntime;
+    let bv_toml = {
+        let p = std::env::current_dir()?.join("bv.toml");
+        bv_core::project::BvToml::from_path(&p).ok()
+    };
+    let runtime = crate::runtime_select::resolve_runtime(backend_flag, bv_toml.as_ref())?;
 
-    // Verify Docker is available.
     runtime
         .health_check()
-        .context("Docker is not available. Is Docker Desktop running?")?;
+        .map_err(|e| anyhow::anyhow!("runtime not available: {e}"))?;
 
     let mp = MultiProgress::new();
     let mut errors: Vec<String> = Vec::new();
