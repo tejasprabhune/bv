@@ -391,7 +391,7 @@ For tools that need large reference databases:
 ```sh
 bv add alphafold          # bv add prints what data the tool requires
 bv data fetch pdbaa --yes # download (sizes range from MB to TB)
-bv run alphafold -- ...   # bv run auto-mounts the data
+bv run alphafold ...      # bv run auto-mounts the data
 bv data list              # see what is cached locally
 ```
 
@@ -469,7 +469,7 @@ Both files belong in version control. `bv run` always uses the pinned digest. `.
 |---------|-------------|
 | `bv add <tool>[@ver]` | Add tools and pull their images |
 | `bv remove <tool>` | Remove a tool |
-| `bv run <binary|tool> [-- <args>]` | Run a binary or tool in its container |
+| `bv run <binary|tool> [<args>]` | Run a binary or tool in its container |
 | `bv exec <command>` | Run a command with all project binaries on PATH |
 | `bv shell [--shell <sh>]` | Start an interactive subshell with binaries on PATH |
 | `bv list` | Show installed tools with tier, digest, and size |

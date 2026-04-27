@@ -9,6 +9,15 @@ use bv_core::project::BvLock;
 use bv_runtime::{ContainerRuntime, GpuProfile, Mount, OciRef, RunSpec};
 
 pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::Result<()> {
+    // trailing_var_arg passes the literal "--" through; strip it so
+    // `bv run blast -- blastn -version` keeps working alongside
+    // `bv run blastn -version`.
+    let args: &[String] = args
+        .first()
+        .filter(|a| a.as_str() == "--")
+        .map(|_| &args[1..])
+        .unwrap_or(args);
+
     let cwd = std::env::current_dir()?;
     let bv_lock_path = cwd.join("bv.lock");
 

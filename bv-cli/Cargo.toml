@@ -8,6 +8,7 @@ homepage.workspace = true
 description = "A uv-style tool manager for bioinformatics: reproducible Docker-backed tools with digest-pinned lockfiles (installs as `bv`)"
 keywords = ["bioinformatics", "docker", "reproducibility", "cli", "containers"]
 categories = ["command-line-utilities", "science"]
+readme = "../README.md"
 
 [[bin]]
 name = "bv"

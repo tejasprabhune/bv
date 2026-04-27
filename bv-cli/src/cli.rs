@@ -75,15 +75,22 @@ pub enum Commands {
         tool: String,
     },
 
-    /// Run a tool inside its container.
+    /// Run a tool or binary inside its container.
+    ///
+    /// bv flags (e.g. --backend) must come before the tool/binary name.
+    /// Everything after the name is forwarded verbatim to the container.
+    ///
+    ///   bv run blastn -query foo.fa -db nr          (binary routing)
+    ///   bv run blast -- blastn -query foo.fa         (name the tool explicitly)
+    ///   bv run --backend apptainer blastn -version   (bv flag before name)
     Run {
-        /// Tool identifier.
+        /// Tool id or exposed binary name.
         tool: String,
         /// Container backend: `docker`, `apptainer`, or `auto` (default).
         #[arg(long, env = "BV_BACKEND")]
         backend: Option<String>,
         /// Arguments forwarded verbatim to the container entrypoint.
-        #[arg(last = true)]
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
 

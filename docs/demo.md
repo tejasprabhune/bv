@@ -76,7 +76,7 @@ USAGE
   makeblastdb [-h] [-help] [-in input_file] ...
 ```
 
-`bv run` looked up `blastn` and `makeblastdb` in `bv.lock`'s binary index and routed both to the blast container. The old form `bv run blast -- blastn ...` still works too.
+`bv run` looked up `blastn` and `makeblastdb` in `bv.lock`'s binary index and routed both to the blast container. You can also name the tool explicitly: `bv run blast -- blastn ...`
 
 ## Part 3: Try AlphaFold — hit the reference data wall (30 s)
 

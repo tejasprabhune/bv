@@ -55,3 +55,57 @@ See [mlberkeley/bv-registry](https://github.com/mlberkeley/bv-registry) for the 
 - Integration tests must pass (`cargo test --test integration -- --include-ignored`)
 - `cargo clippy -- -D warnings` must be clean
 - `cargo fmt --check` must pass
+
+## Releasing
+
+### 1. Prepare
+
+Bump the version in `Cargo.toml` (workspace root). All crates inherit it via `[workspace.package]`, so one edit is enough.
+
+Update `CHANGELOG.md`: add a `## [x.y.z] - YYYY-MM-DD` heading and summarise what changed.
+
+Run the full test suite one last time:
+
+```sh
+cargo test
+cargo clippy -- -D warnings
+cargo fmt --check
+```
+
+Commit both files:
+
+```sh
+git add Cargo.toml Cargo.lock CHANGELOG.md
+git commit -m "Release vx.y.z"
+```
+
+### 2. Publish to crates.io
+
+The workspace crates must be published in dependency order because each one must exist on crates.io before dependents can reference it. Run these in sequence, waiting for each to finish:
+
+```sh
+cargo publish -p bv-types
+cargo publish -p bv-core
+cargo publish -p bv-runtime
+cargo publish -p bv-runtime-apptainer
+cargo publish -p bv-index
+cargo publish -p bv-conformance
+cargo publish -p biov          # the bv-cli crate (binary is named bv)
+```
+
+If `cargo publish` flags a crate as already up to date (unchanged since last release), skip it.
+
+### 3. Tag and push
+
+```sh
+git tag vx.y.z
+git push origin main --tags
+```
+
+Pushing the tag triggers the `release.yml` workflow, which builds binaries for all four targets (x86_64/aarch64, Linux/macOS) and creates a GitHub release with them attached. Release notes are generated automatically from commits.
+
+### 4. Verify
+
+- Check the [Actions tab](https://github.com/mlberkeley/bv/actions) to confirm the release workflow passed.
+- Confirm the new version appears at `https://crates.io/crates/biov`.
+- Run `cargo install biov` on a clean machine (or `cargo install biov --version x.y.z`) to sanity-check the published binary.

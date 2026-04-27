@@ -111,7 +111,7 @@ in a bv-activated context.
 ```sh
 bv run blastn -query foo.fa       # resolves blastn -> blast tool
 bv run makeblastdb -in seqs.fa    # same blast image
-bv run blast -- blastn -query foo  # original form still works
+bv run blast -- blastn -query foo  # also valid: name the tool explicitly
 ```
 
 ---
