@@ -11,6 +11,10 @@ Work with protein folding in under 3 min with `bv`. You'll need a GPU for this d
 ## tl;dr
 
 ```sh
+# install bv (one of the following)
+curl -fsSL https://raw.githubusercontent.com/mlberkeley/bv/main/install.sh | sh
+cargo install biov
+
 mkdir protein-demo && cd protein-demo
 bv add colabfold
 # copy fold.py from this docs dir into protein-demo/
