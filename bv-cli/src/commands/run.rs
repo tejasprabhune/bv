@@ -86,16 +86,24 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
     image.tag = None;
     image.digest = Some(entry.image_digest.clone());
 
-    // Decide command: binary routing > user args > manifest entrypoint.
+    // Decide command. Three cases:
+    //   * binary alias  (`bv run blastn -query x`)   -> [binary, ...args]
+    //   * tool id, no args (`bv run bcftools`)       -> [entrypoint.command]
+    //   * tool id, with args (`bv run bcftools view ...`)
+    //                                                 -> [entrypoint.command, ...args]
+    // The third case is what shims hit: the shim invokes
+    // `bv run <toolname> "$@"`, so when "$@" is non-empty we still want the
+    // tool's entrypoint binary in front, not just the user's args.
     let command = if let Some(bin) = binary_override {
-        // bv run blastn -query foo.fa  ->  ["blastn", "-query", "foo.fa"]
         let mut cmd = vec![bin];
         cmd.extend_from_slice(args);
         cmd
     } else if args.is_empty() {
         vec![manifest.tool.entrypoint.command.clone()]
     } else {
-        args.to_vec()
+        let mut cmd = vec![manifest.tool.entrypoint.command.clone()];
+        cmd.extend_from_slice(args);
+        cmd
     };
 
     // Resolve runtime up front so the mount-building code can ask which backend
