@@ -163,7 +163,7 @@ pub fn from_config(
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "version is required in non-interactive mode\n  \
-                 Set it in bv-publish.toml or pass --version"
+                 Set it in bv-publish.toml or pass --tool-version"
             )
         })?;
 
