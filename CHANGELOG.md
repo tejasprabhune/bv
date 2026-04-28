@@ -8,6 +8,7 @@ All notable changes to `bv` are documented here. Follows [Keep a Changelog](http
 
 - `PostDownloadAction::Decompress`: gunzip a single `.gz` payload into the cache (previously the only post-download verbs were `noop` and `extract`, which forced gzipped data manifests to be misclassified).
 - `bv data fetch` now downloads every entry in `source_urls`, not just the first. The primary file is sha256-verified and the post-download action is applied to it; remaining files (for example, a `.tbi` index alongside a `.vcf.gz`) are placed in the cache directory as-is.
+- The `Decompress` action uses `MultiGzDecoder` so bgzipped payloads (such as ClinVar's tabix-indexed VCF, where the gzip stream is many concatenated members) are fully decompressed instead of stopping at the first member.
 
 ## [0.1.0] - 2026-04-26
 

@@ -255,7 +255,9 @@ fn decompress_gzip(archive: &Path, dest: &Path) -> anyhow::Result<()> {
     let out_path = dest.join(stem);
     let f_in = std::fs::File::open(archive)
         .with_context(|| format!("failed to open {} for decompression", archive.display()))?;
-    let mut decoder = flate2::read::GzDecoder::new(std::io::BufReader::new(f_in));
+    // MultiGzDecoder handles concatenated gzip members (bgzip-style files like
+    // tabix-indexed VCFs); plain single-member gzip works through it too.
+    let mut decoder = flate2::read::MultiGzDecoder::new(std::io::BufReader::new(f_in));
     let f_out = std::fs::File::create(&out_path)
         .with_context(|| format!("failed to create {}", out_path.display()))?;
     let mut writer = std::io::BufWriter::new(f_out);
