@@ -87,15 +87,66 @@ fn docker_push(image_ref: &str) -> anyhow::Result<()> {
         "Pushing".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string()),
         image_ref
     );
-    let status = Command::new("docker")
+    // Tee stderr through a reader thread so the user still sees live progress
+    // while we keep a copy to inspect for known error patterns afterwards.
+    let mut child = Command::new("docker")
         .args(["push", image_ref])
-        .status()
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .context("failed to spawn 'docker push'")?;
+    let stderr = child.stderr.take().expect("piped stderr");
+    let captured = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let captured_w = std::sync::Arc::clone(&captured);
+    let pump = std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader, Write};
+        let reader = BufReader::new(stderr);
+        for line in reader.lines().map_while(|l| l.ok()) {
+            let _ = writeln!(std::io::stderr(), "{line}");
+            if let Ok(mut buf) = captured_w.lock() {
+                buf.push_str(&line);
+                buf.push('\n');
+            }
+        }
+    });
 
-    if !status.success() {
-        anyhow::bail!("docker push failed (exit {})", status);
+    let status = child.wait().context("failed to wait on 'docker push'")?;
+    let _ = pump.join();
+    if status.success() {
+        return Ok(());
     }
-    Ok(())
+
+    let log = captured.lock().map(|s| s.clone()).unwrap_or_default();
+    let hint = push_hint(&log);
+    if hint.is_empty() {
+        anyhow::bail!("docker push failed (exit {status})");
+    }
+    anyhow::bail!("docker push failed (exit {status})\n{hint}");
+}
+
+/// Pattern-match the captured `docker push` stderr for known failure modes
+/// and return a focused hint. Empty string means "no specific guidance".
+fn push_hint(log: &str) -> String {
+    let l = log.to_lowercase();
+    if l.contains("permission_denied") && l.contains("scope") {
+        return "  hint: your token is missing the `write:packages` scope.\n  \
+                Generate one at https://github.com/settings/tokens/new?scopes=repo,write:packages&description=bv-publish\n  \
+                Then either:\n    \
+                    - export GITHUB_TOKEN=<token> && retry, or\n    \
+                    - run: gh auth refresh -h github.com -s write:packages,read:packages"
+            .into();
+    }
+    if l.contains("denied: ") || l.contains("unauthorized") {
+        return "  hint: docker is logged in but the registry refused the push.\n  \
+                Check that your token has `write:packages` and that you can write to this namespace.\n  \
+                See https://github.com/settings/tokens for token scopes."
+            .into();
+    }
+    if l.contains("manifest blob unknown") || l.contains("manifest invalid") {
+        return "  hint: the image built but the registry rejected its manifest.\n  \
+                Try `docker buildx build --platform linux/amd64 ...` or pass --platform to bv publish."
+            .into();
+    }
+    String::new()
 }
 
 fn resolve_digest(image_ref: &str) -> anyhow::Result<String> {

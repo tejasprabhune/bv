@@ -198,7 +198,14 @@ pub fn interactive(
     version_override: Option<&str>,
 ) -> anyhow::Result<ScaffoldResult> {
     let meta = config.map(|c| &c.publish);
-    let theme = ColorfulTheme::default();
+    // Drop dialoguer's emoji prefixes (ok / x) for a calmer look while keeping
+    // the rest of ColorfulTheme's spacing and colors.
+    let theme = ColorfulTheme {
+        success_prefix: dialoguer::console::style("  ".into()).for_stderr(),
+        error_prefix: dialoguer::console::style("  ".into()).for_stderr().red(),
+        prompt_prefix: dialoguer::console::style("  ".into()).for_stderr(),
+        ..ColorfulTheme::default()
+    };
 
     let name_default = name_override
         .map(|s| s.to_string())

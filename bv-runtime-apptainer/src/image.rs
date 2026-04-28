@@ -54,8 +54,8 @@ pub fn pull_as_sif(image: &OciRef, sif_path: &Path, apptainer_bin: &str) -> Resu
 /// `docker://`. The docker.io registry is implicit, so we omit it.
 ///
 /// We prefer the tag over the digest because our lockfile's `image_digest`
-/// is the SIF file's sha256, not the registry manifest digest — pulling by
-/// that hash would 404. Reproducibility is enforced by verifying the SIF's
+/// is the SIF file's sha256, not the registry manifest digest, so pulling
+/// by that hash would 404. Reproducibility is enforced by verifying the SIF's
 /// file hash after the pull (see `runtime::pull`).
 pub fn registry_uri(image: &OciRef) -> String {
     let mut uri = if image.registry == "docker.io" {

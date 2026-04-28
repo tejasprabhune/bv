@@ -51,7 +51,7 @@ pub struct RuntimeConfig {
 /// A writable cache directory bound into the container at runtime.
 ///
 /// Used to persist tool scratch state (model weights, downloaded indices,
-/// etc.) across runs, and to satisfy tools that write inside the image —
+/// etc.) across runs, and to satisfy tools that write inside the image,
 /// which apptainer's read-only SIF would otherwise reject.
 ///
 /// ```toml

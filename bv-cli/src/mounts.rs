@@ -17,11 +17,11 @@ const APPTAINER_FALLBACK_CACHE_PATHS: &[&str] = &["/cache", "/root/.cache"];
 
 /// Build the cache mounts for a `bv run` invocation, in precedence order:
 ///
-/// 1. **Manifest** (`tool.cache_paths`) — the tool author's authoritative
+/// 1. **Manifest** (`tool.cache_paths`) : the tool author's authoritative
 ///    list of paths that need writable backing.
-/// 2. **User** (`[[cache]]` in `bv.toml`) — adds new paths or overrides the
+/// 2. **User** (`[[cache]]` in `bv.toml`) : adds new paths or overrides the
 ///    host side of any path declared by the manifest.
-/// 3. **Hardcoded apptainer fallbacks** — only on apptainer, only for
+/// 3. **Hardcoded apptainer fallbacks** : only on apptainer, only for
 ///    container paths nothing else has claimed.
 ///
 /// All produced host directories are created if they don't already exist.

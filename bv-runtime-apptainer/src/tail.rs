@@ -100,7 +100,7 @@ impl RollingTail {
                     }
                 }
                 Ok(Chunk::Eof) => alive -= 1,
-                Err(_) => {} // timeout — fall through to redraw
+                Err(_) => {} // timeout, fall through to redraw
             }
             if dirty && self.last_draw.elapsed() >= REDRAW_INTERVAL {
                 self.redraw();
