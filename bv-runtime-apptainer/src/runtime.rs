@@ -85,7 +85,8 @@ impl ContainerRuntime for ApptainerRuntime {
         if let Some(known) = &image.digest {
             let canonical = self.sif_for_digest(known);
             if canonical.exists() {
-                progress.finish(&format!("SIF already cached for {reference}"));
+                // Clear the spinner; the outer "Added" line is the success summary.
+                progress.finish("");
                 return Ok(ImageDigest(known.clone()));
             }
         }
@@ -119,7 +120,7 @@ impl ContainerRuntime for ApptainerRuntime {
             })?;
             let _ = std::fs::remove_file(&staging);
         }
-        progress.finish(&format!("Pulled {reference}"));
+        progress.finish("");
         Ok(ImageDigest(digest))
     }
 

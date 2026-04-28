@@ -90,18 +90,17 @@ pub async fn run(
             .map_err(|e| anyhow::anyhow!("invalid image_reference in lockfile: {e}"))?;
         oci_ref.digest = Some(entry.image_digest.clone());
 
-        eprintln!(
+        let reporter = CliProgressReporter::for_multi(&mp);
+        reporter.println(&format!(
             "  {} {} {}",
             "Pulling".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string()),
             entry
                 .tool_id
                 .if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
-            oci_ref
-                .docker_arg()
+            short_digest(&entry.image_digest)
                 .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
-        );
+        ));
 
-        let reporter = CliProgressReporter::for_multi(&mp);
         match runtime.pull(&oci_ref, &reporter) {
             Ok(pulled_digest) => {
                 if pulled_digest.0 != entry.image_digest {
@@ -113,7 +112,7 @@ pub async fn run(
                     ));
                 } else {
                     try_restore_manifest(entry);
-                    eprintln!(
+                    reporter.println(&format!(
                         "  {} {} {}  {}",
                         "Synced"
                             .if_supports_color(Stream::Stderr, |t| t.green().bold().to_string()),
@@ -123,7 +122,7 @@ pub async fn run(
                         entry.version,
                         short_digest(&entry.image_digest)
                             .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
-                    );
+                    ));
                 }
             }
             Err(e) => {

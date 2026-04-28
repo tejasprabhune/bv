@@ -117,7 +117,7 @@ impl ScaffoldResult {
                 },
                 cache_paths: vec![],
                 binaries: None,
-                test: None,
+                smoke: None,
                 signatures: None,
             },
         };

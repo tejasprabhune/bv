@@ -336,14 +336,22 @@ cache_paths = ["/cache/colabfold"]
 
 ## Conformance testing
 
-Every tool can carry a `[tool.test]` block. The `bv conformance` command runs the tool with canonical tiny inputs and verifies the outputs match their declared types. It also checks that every binary in `[tool.binaries]` responds to `--help` or `--version`.
+`bv conformance <tool>` pulls the tool's image and smoke-tests every binary it exposes. For each binary in `[tool.binaries]`, bv tries `--version`, `-version`, `--help`, `-h`, `-v`, `version` (in that order) and considers the binary alive if any of them exits 0. This catches broken images, missing shared libraries, and binaries that segfault on startup.
 
 ```sh
-bv conformance blast            # pull + run + verify outputs and binaries
+bv conformance blast
 bv conformance hmmer --backend apptainer
 ```
 
-Conformance runs in CI on every PR to bv-registry. A tool cannot be promoted to `core` until conformance passes.
+Most tools need no extra config. For unusual binaries, add a `[tool.smoke]` block to the manifest:
+
+```toml
+[tool.smoke]
+probes = { weird-tool = "--check" }   # pin a specific probe arg
+skip   = ["server-daemon"]            # binaries with no safe probe arg
+```
+
+Conformance runs in CI on every PR to bv-registry. Today it's a smoke check only; running tools on canonical inputs and validating typed outputs is on the v2 roadmap.
 
 ---
 
@@ -597,11 +605,9 @@ exposed = [
   "makeblastdb", "blastdbcmd", "blastdb_aliastool",
 ]
 
-[tool.test]
-inputs = { query = "test://fasta-nucleotide" }
-expected_outputs = ["output"]
-timeout_seconds = 60
 ```
+
+The `[tool.smoke]` block is optional and only needed for unusual binaries. Most manifests omit it.
 
 The default registry is used automatically. Override with `--registry <url>` or `BV_REGISTRY=<url>` for private registries.
 

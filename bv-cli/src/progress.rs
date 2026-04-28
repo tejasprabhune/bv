@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::time::Duration;
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -6,22 +7,31 @@ use bv_runtime::{PauseGuard, ProgressReporter};
 
 pub struct CliProgressReporter {
     bar: ProgressBar,
+    mp: MultiProgress,
 }
 
 impl CliProgressReporter {
-    fn styled(bar: ProgressBar) -> Self {
+    fn styled(bar: ProgressBar, mp: MultiProgress) -> Self {
         bar.set_style(
-            ProgressStyle::with_template("{spinner:.cyan} {msg}")
+            // 2-space indent matches the surrounding `Pulling` / `Added` status lines.
+            ProgressStyle::with_template("  {spinner:.cyan} {msg}")
                 .unwrap()
                 .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
         bar.enable_steady_tick(Duration::from_millis(80));
-        Self { bar }
+        Self { bar, mp }
     }
 
     /// Spinner added to a `MultiProgress` (multi-tool path).
     pub fn for_multi(mp: &MultiProgress) -> Self {
-        Self::styled(mp.add(ProgressBar::new_spinner()))
+        Self::styled(mp.add(ProgressBar::new_spinner()), mp.clone())
+    }
+
+    /// Print a status line above the spinner without tearing it. Use this
+    /// for top-level "Pulling X" / "Added X" lines so they interleave cleanly
+    /// with the running spinner.
+    pub fn println(&self, line: &str) {
+        let _ = self.mp.println(line);
     }
 }
 
@@ -40,27 +50,17 @@ impl ProgressReporter for CliProgressReporter {
     }
 
     fn pause(&self) -> Box<dyn PauseGuard + '_> {
+        // One-shot pause: caller is expected to call `finish()` afterwards.
+        // We clear the spinner row and never restore it, which avoids the brief
+        // flicker (and stale glyph artifact) you'd otherwise see between
+        // "rolling tail done" and "finish_and_clear".
         self.bar.disable_steady_tick();
-        let saved = self.bar.message();
         self.bar.set_message(String::new());
-        self.bar.tick();
-        Box::new(SpinnerPauseGuard {
-            bar: &self.bar,
-            saved,
-        })
+        eprint!("\r\x1b[2K");
+        let _ = std::io::stderr().flush();
+        Box::new(SpinnerPauseGuard)
     }
 }
 
-struct SpinnerPauseGuard<'a> {
-    bar: &'a ProgressBar,
-    saved: String,
-}
-
-impl PauseGuard for SpinnerPauseGuard<'_> {}
-
-impl Drop for SpinnerPauseGuard<'_> {
-    fn drop(&mut self) {
-        self.bar.set_message(std::mem::take(&mut self.saved));
-        self.bar.enable_steady_tick(Duration::from_millis(80));
-    }
-}
+struct SpinnerPauseGuard;
+impl PauseGuard for SpinnerPauseGuard {}

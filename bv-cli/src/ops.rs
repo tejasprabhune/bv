@@ -164,12 +164,12 @@ pub fn pull_and_make_entry(
     cache: &CacheLayout,
     runtime: &AnyRuntime,
 ) -> anyhow::Result<LockfileEntry> {
-    eprintln!(
+    reporter.println(&format!(
         "  {} {}",
         "Pulling".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string()),
         format!("{}@{}", resolved.tool_id, resolved.manifest.tool.version)
             .if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
-    );
+    ));
 
     let digest = runtime
         .pull(&resolved.oci_ref, reporter)
@@ -187,7 +187,7 @@ pub fn pull_and_make_entry(
 
     let short = crate::commands::add::short_digest(&digest.0);
     let size_str = size_bytes.map(format_size).unwrap_or_default();
-    eprintln!(
+    reporter.println(&format!(
         "  {} {} {}  {} {}",
         "Added".if_supports_color(Stream::Stderr, |t| t.green().bold().to_string()),
         resolved
@@ -196,7 +196,7 @@ pub fn pull_and_make_entry(
         resolved.manifest.tool.version,
         short.if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
         size_str.if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
-    );
+    ));
 
     let binaries = resolved
         .manifest

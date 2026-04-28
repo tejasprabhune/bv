@@ -241,26 +241,29 @@ pub struct BinariesSpec {
     pub exposed: Vec<String>,
 }
 
-/// Canonical inputs and expected outputs used by the conformance test runner.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TestSpec {
-    /// Map of port name to a `test://` URI identifying the canonical input.
-    #[serde(default)]
-    pub inputs: std::collections::HashMap<String, String>,
-    /// Port names whose output files must exist and pass type-level checks.
-    #[serde(default)]
-    pub expected_outputs: Vec<String>,
-    /// Additional CLI args appended to the entrypoint during test runs.
-    #[serde(default)]
-    pub extra_args: Vec<String>,
-    /// Seconds before the conformance run is killed.
-    #[serde(default = "default_timeout")]
-    pub timeout_seconds: u64,
-    /// When true, skipped in fast CI and run only on a separate slow schedule.
-    #[serde(default)]
-    pub slow: bool,
+/// Per-tool overrides for `bv conformance`'s smoke check.
+///
+/// The smoke check tries a small set of probe args (`--version`, `-version`,
+/// `--help`, `-h`, `-v`, `version`) against every binary the tool exposes,
+/// and counts a binary as alive if any probe produces output or exits 0.
+/// Most tools don't need a `[tool.smoke]` block at all; this is the escape
+/// hatch for the unusual cases.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SmokeSpec {
+    /// Override probe args for specific binaries, e.g. `{ "blastn" = "-version" }`.
+    /// Each value is a single command-line argument (or empty string for "run
+    /// the binary with no args"). When set, only this probe is tried for that
+    /// binary; the default list is bypassed.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub probes: std::collections::HashMap<String, String>,
+    /// Binaries to skip entirely (daemons, "no non-destructive invocation"
+    /// tools, etc.). Listed binaries still appear in `[tool.binaries]` and
+    /// get shims; conformance just doesn't probe them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skip: Vec<String>,
 }
 
+#[allow(dead_code)]
 fn default_timeout() -> u64 {
     60
 }
@@ -314,9 +317,9 @@ pub struct ToolManifest {
     /// Omit for single-binary tools; defaults to `[entrypoint.command]`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binaries: Option<BinariesSpec>,
-    /// Conformance test block; used by `bv conformance check`.
+    /// Smoke-check overrides; consulted by `bv conformance` for unusual binaries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub test: Option<TestSpec>,
+    pub smoke: Option<SmokeSpec>,
     /// Sigstore / cosign signature declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signatures: Option<SignatureSpec>,

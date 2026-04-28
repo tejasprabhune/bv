@@ -102,7 +102,7 @@ impl ContainerRuntime for DockerRuntime {
             return Err(classify_pull_error(&stderr_output, &image_arg));
         }
 
-        progress.finish(&format!("Pulled {image_arg}"));
+        progress.finish(""); // outer "Added X" line is the summary; avoid redundant URL spam
 
         let digest = match pull_digest {
             Some(d) => d,

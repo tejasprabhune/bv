@@ -162,7 +162,7 @@ mod tests {
             },
             cache_paths: cache_paths.into_iter().map(String::from).collect(),
             binaries: None,
-            test: None,
+            smoke: None,
             signatures: None,
         }
     }

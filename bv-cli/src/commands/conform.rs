@@ -37,14 +37,6 @@ pub async fn run(
         manifest.tool.version
     );
 
-    if manifest.tool.test.is_none() {
-        eprintln!(
-            "  {} no [tool.test] block in manifest; conformance skipped",
-            "note:".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string())
-        );
-        return Ok(());
-    }
-
     // Pull the image first.
     let image_digest = bv_conformance::verify_image_reachable(
         &manifest,

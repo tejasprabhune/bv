@@ -39,9 +39,8 @@ pub fn maybe_print_refresh(refreshed: bool) {
     use owo_colors::{OwoColorize, Stream};
     if refreshed {
         eprintln!(
-            "  {} index  {}",
-            "Updating".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string()),
-            "done".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
+            "  {} index",
+            "Updated".if_supports_color(Stream::Stderr, |t| t.green().bold().to_string()),
         );
     }
 }
