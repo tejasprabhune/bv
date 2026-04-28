@@ -8,6 +8,7 @@ pub enum PostDownloadAction {
     #[default]
     Noop,
     Extract,
+    Decompress,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,7 +17,7 @@ pub struct DataEntry {
     pub version: String,
     pub description: Option<String>,
     pub source_urls: Vec<String>,
-    /// Expected SHA-256 of the downloaded file as `sha256:<hex>`.
+    /// Expected SHA-256 of the primary downloaded file as `sha256:<hex>`.
     pub sha256: String,
     pub size_bytes: u64,
     /// File format hint, e.g. `"tar"`, `"fasta_gz"`, `"raw"`.

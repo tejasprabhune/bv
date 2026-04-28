@@ -274,7 +274,7 @@ mod tests {
             // /cache appears once (from manifest), /root/.cache from fallback.
             let cache_count = mounts
                 .iter()
-                .filter(|x| x.container_path == PathBuf::from("/cache"))
+                .filter(|x| x.container_path == std::path::Path::new("/cache"))
                 .count();
             assert_eq!(cache_count, 1);
         });

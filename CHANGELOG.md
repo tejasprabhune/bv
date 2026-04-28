@@ -2,6 +2,13 @@
 
 All notable changes to `bv` are documented here. Follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.9] - 2026-04-28
+
+### Added
+
+- `PostDownloadAction::Decompress`: gunzip a single `.gz` payload into the cache (previously the only post-download verbs were `noop` and `extract`, which forced gzipped data manifests to be misclassified).
+- `bv data fetch` now downloads every entry in `source_urls`, not just the first. The primary file is sha256-verified and the post-download action is applied to it; remaining files (for example, a `.tbi` index alongside a `.vcf.gz`) are placed in the cache directory as-is.
+
 ## [0.1.0] - 2026-04-26
 
 Initial release.

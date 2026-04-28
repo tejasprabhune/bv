@@ -88,44 +88,59 @@ async fn fetch_one(
         }
     }
 
-    let url = manifest
-        .data
-        .source_urls
-        .first()
-        .ok_or_else(|| anyhow::anyhow!("dataset '{id}' has no source_urls in its manifest"))?;
+    if manifest.data.source_urls.is_empty() {
+        anyhow::bail!("dataset '{id}' has no source_urls in its manifest");
+    }
 
-    let filename = url
-        .rsplit('/')
-        .find(|s| !s.is_empty())
-        .unwrap_or("download");
     let tmp_dir = cache.tmp_dir();
     std::fs::create_dir_all(&tmp_dir)?;
-    let tmp_path = tmp_dir.join(format!("{id}-{ver}-{filename}"));
+    std::fs::create_dir_all(&final_dir)?;
 
     eprintln!(
         "  {} {id}@{ver}",
         "Fetching".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string())
     );
 
-    download_verified(
-        url,
-        &tmp_path,
-        &manifest.data.sha256,
-        manifest.data.size_bytes,
-    )
-    .await?;
+    let mut downloaded: Vec<std::path::PathBuf> = Vec::new();
+    for (i, url) in manifest.data.source_urls.iter().enumerate() {
+        let filename = url
+            .rsplit('/')
+            .find(|s| !s.is_empty())
+            .unwrap_or("download");
+        let tmp_path = tmp_dir.join(format!("{id}-{ver}-{filename}"));
 
-    // Post-download action: move/extract into final_dir atomically.
-    std::fs::create_dir_all(&final_dir)?;
+        // The primary file's sha256 is enforced; sidecars (e.g. a `.tbi`
+        // alongside a `.vcf.gz`) are downloaded without integrity checking.
+        let expected_sha = if i == 0 {
+            Some(manifest.data.sha256.as_str())
+        } else {
+            None
+        };
+        download_verified(url, &tmp_path, expected_sha, manifest.data.size_bytes).await?;
+        downloaded.push(tmp_path);
+    }
+
+    // Apply the post-download action to the primary file only; sidecars are
+    // moved into the final cache directory as-is.
+    let primary = downloaded.remove(0);
     match manifest.data.post_download_action {
         PostDownloadAction::Noop => {
-            std::fs::rename(&tmp_path, final_dir.join(filename))
-                .context("failed to move downloaded file to cache")?;
+            let dest = final_dir.join(primary.file_name().unwrap());
+            std::fs::rename(&primary, &dest).context("failed to move downloaded file to cache")?;
         }
         PostDownloadAction::Extract => {
-            extract_archive(&tmp_path, &final_dir)?;
-            let _ = std::fs::remove_file(&tmp_path);
+            extract_archive(&primary, &final_dir)?;
+            let _ = std::fs::remove_file(&primary);
         }
+        PostDownloadAction::Decompress => {
+            decompress_gzip(&primary, &final_dir)?;
+            let _ = std::fs::remove_file(&primary);
+        }
+    }
+    for extra in downloaded {
+        let dest = final_dir.join(extra.file_name().unwrap());
+        std::fs::rename(&extra, &dest)
+            .context("failed to move downloaded sidecar file to cache")?;
     }
 
     eprintln!(
@@ -143,7 +158,7 @@ async fn fetch_one(
 async fn download_verified(
     url: &str,
     dest: &Path,
-    expected_sha256: &str,
+    expected_sha256: Option<&str>,
     size_hint: u64,
 ) -> anyhow::Result<()> {
     let client = reqwest::Client::new();
@@ -210,17 +225,41 @@ async fn download_verified(
     file.flush().await?;
     bar.finish_and_clear();
 
-    let digest_bytes = hasher.finalize();
-    let hex: String = digest_bytes.iter().map(|b| format!("{b:02x}")).collect();
-    let actual = format!("sha256:{hex}");
-    if actual != expected_sha256 {
-        let _ = std::fs::remove_file(dest);
-        anyhow::bail!(
-            "SHA-256 mismatch for {url}\n  expected {expected_sha256}\n  got      {actual}\n\
-             The downloaded file has been deleted."
-        );
+    if let Some(expected) = expected_sha256 {
+        let digest_bytes = hasher.finalize();
+        let hex: String = digest_bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let actual = format!("sha256:{hex}");
+        if actual != expected {
+            let _ = std::fs::remove_file(dest);
+            anyhow::bail!(
+                "SHA-256 mismatch for {url}\n  expected {expected}\n  got      {actual}\n\
+                 The downloaded file has been deleted."
+            );
+        }
     }
 
+    Ok(())
+}
+
+fn decompress_gzip(archive: &Path, dest: &Path) -> anyhow::Result<()> {
+    let stem = archive
+        .file_name()
+        .and_then(|n| n.to_str())
+        .and_then(|n| n.strip_suffix(".gz"))
+        .unwrap_or_else(|| {
+            archive
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("decompressed")
+        });
+    let out_path = dest.join(stem);
+    let f_in = std::fs::File::open(archive)
+        .with_context(|| format!("failed to open {} for decompression", archive.display()))?;
+    let mut decoder = flate2::read::GzDecoder::new(std::io::BufReader::new(f_in));
+    let f_out = std::fs::File::create(&out_path)
+        .with_context(|| format!("failed to create {}", out_path.display()))?;
+    let mut writer = std::io::BufWriter::new(f_out);
+    std::io::copy(&mut decoder, &mut writer).context("gzip decompression failed")?;
     Ok(())
 }
 
