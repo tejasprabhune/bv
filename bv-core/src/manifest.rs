@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -229,7 +229,7 @@ pub struct EntrypointSpec {
     pub command: String,
     pub args_template: Option<String>,
     #[serde(default)]
-    pub env: HashMap<String, String>,
+    pub env: BTreeMap<String, String>,
 }
 
 /// Binary names that the tool's container exposes on PATH.
@@ -254,8 +254,8 @@ pub struct SmokeSpec {
     /// Each value is a single command-line argument (or empty string for "run
     /// the binary with no args"). When set, only this probe is tried for that
     /// binary; the default list is bypassed.
-    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
-    pub probes: std::collections::HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub probes: std::collections::BTreeMap<String, String>,
     /// Binaries to skip entirely (daemons, "no non-destructive invocation"
     /// tools, etc.). Listed binaries still appear in `[tool.binaries]` and
     /// get shims; conformance just doesn't probe them.
@@ -298,7 +298,7 @@ pub struct ToolManifest {
     pub image: ImageSpec,
     pub hardware: HardwareSpec,
     #[serde(default)]
-    pub reference_data: HashMap<String, ReferenceDataSpec>,
+    pub reference_data: BTreeMap<String, ReferenceDataSpec>,
     /// Typed inputs. Optional; manifests without this section parse unchanged.
     #[serde(default)]
     pub inputs: Vec<IoSpec>,
@@ -313,8 +313,8 @@ pub struct ToolManifest {
     /// Each value is the literal argv prefix; user args are appended verbatim.
     /// Unlike `[tool.binaries]`, names are not exposed on PATH or in the global
     /// binary index, so generic names (`train`, `eval`) are safe.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub subcommands: HashMap<String, Vec<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub subcommands: BTreeMap<String, Vec<String>>,
     /// Container paths the tool writes to during normal execution and that
     /// should therefore be bound to writable host directories. Critical on
     /// apptainer (read-only SIF root), nice-to-have on docker (lets caches
@@ -607,6 +607,45 @@ command = "mytool"
         let reparsed = Manifest::from_toml_str(&serialised).expect("reparse failed");
         assert_eq!(reparsed.tool.id, manifest.tool.id);
         assert_eq!(reparsed.tool.version, manifest.tool.version);
+    }
+
+    /// Regression: HashMap-backed fields produced non-deterministic TOML
+    /// output, breaking lockfile drift detection. Re-serializing the same
+    /// manifest must always yield identical bytes.
+    #[test]
+    fn to_toml_string_is_deterministic_with_subcommands() {
+        let s = r#"
+[tool]
+id = "multi"
+version = "1.0.0"
+
+[tool.image]
+backend = "docker"
+reference = "example/multi:1.0.0"
+
+[tool.hardware]
+
+[tool.entrypoint]
+command = "main"
+
+[tool.subcommands]
+zebra = ["script_z.py"]
+alpha = ["script_a.py"]
+mango = ["python", "-m", "scripts.mango"]
+beta = ["script_b.py"]
+"#;
+        let m = Manifest::from_toml_str(s).expect("parse");
+        let a = m.to_toml_string().unwrap();
+        // Re-serialize many times to make iteration-order luck unlikely.
+        for _ in 0..32 {
+            assert_eq!(a, m.to_toml_string().unwrap(), "non-deterministic output");
+        }
+        // And the keys must appear in lexicographic order (BTreeMap).
+        let alpha = a.find("alpha = ").unwrap();
+        let beta = a.find("beta = ").unwrap();
+        let mango = a.find("mango = ").unwrap();
+        let zebra = a.find("zebra = ").unwrap();
+        assert!(alpha < beta && beta < mango && mango < zebra);
     }
 
     #[test]

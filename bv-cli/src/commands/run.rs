@@ -196,7 +196,7 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
             .tool
             .entrypoint
             .as_ref()
-            .map(|e| e.env.clone())
+            .map(|e| e.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
             .unwrap_or_default(),
         mounts,
         gpu: GpuProfile {

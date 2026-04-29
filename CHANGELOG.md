@@ -2,6 +2,12 @@
 
 All notable changes to `bv` are documented here. Follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.13] - 2026-04-29
+
+### Fixed
+
+- `Manifest::to_toml_string` is now deterministic. The four serialized maps (`tool.env`, `tool.smoke.probes`, `tool.reference_data`, `tool.subcommands`) are stored as `BTreeMap` so iteration order is lexicographic instead of HashMap's randomized order. Previously, `bv lock` and `bv sync` could compute different `manifest_sha256` for the same on-disk manifest if any of these maps were non-empty, producing a spurious "manifest has changed since lock" warning on every `bv sync` (most visible for tools with `[tool.subcommands]` like genie2).
+
 ## [0.1.12] - 2026-04-28
 
 ### Added

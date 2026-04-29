@@ -126,7 +126,7 @@ impl ScaffoldResult {
                         env: Default::default(),
                     })
                 },
-                subcommands: self.subcommands.clone(),
+                subcommands: self.subcommands.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
                 cache_paths: vec![],
                 binaries: None,
                 smoke: None,
