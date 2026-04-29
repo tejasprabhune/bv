@@ -1,6 +1,16 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+/// Resolve the concurrent-pull cap for `bv add`/`bv sync`.
+///
+/// Priority: explicit `--jobs N` flag > `BV_JOBS` env var (handled by clap) >
+/// `min(8, num_cpus)`. The 8-cap is conservative; image pulls are network- and
+/// disk-bound, so once both are saturated more parallelism just queues. Tune up
+/// on machines with fast network and lots of cores.
+pub fn default_jobs(explicit: Option<usize>) -> usize {
+    explicit.unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8))
+}
+
 use anyhow::Context;
 use chrono::Utc;
 use indicatif::MultiProgress;

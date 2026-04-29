@@ -4,6 +4,7 @@ pub mod conform;
 pub mod data;
 pub mod doctor;
 pub mod exec;
+pub mod export;
 pub mod list;
 pub mod lock;
 pub mod remove;

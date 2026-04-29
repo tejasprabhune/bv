@@ -2,10 +2,17 @@
 
 All notable changes to `bv` are documented here. Follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.17] - 2026-04-29
+
+### Added
+
+- **`--jobs N` on `bv add` and `bv sync`** (also `BV_JOBS` env var). Controls the maximum number of concurrent image pulls. Default is `min(8, num_cpus)` instead of the previous hardcoded `3`. Pull throughput on a typical lab box is bound by network and disk; 3 was too conservative. Tune up on fast-network hosts (the conformance walker also defaults to 4 / accepts `--jobs`).
+
 ## [0.1.16] - 2026-04-29
 
 ### Added
 
+- **`bv export --format conda`** emits a `conda env`-compatible YAML approximating the project's tools, as a one-way escape hatch for labs not yet on bv. Biocontainers refs (`quay.io/biocontainers/<name>:<version>--<hash>`) map to `bioconda::<name>=<version>` specs; tools sourced from custom OCI images (GHCR, `ncbi/blast`, etc.) are listed in a comment block at the bottom of the file. Default output is stdout; pass `-o environment.yml` to write a file. A stderr summary reports counts of exported vs. skipped tools. `--format` other than `conda` is rejected today (pixi/dockerfile coming).
 - **`bv exec` auto-syncs before running** (uv-run-style). Before exec, `bv exec` checks four conditions in order: (a) `bv.lock` missing → fail with the existing helpful error; (b) `bv.toml` mtime newer than `bv.lock` → re-run lock + sync, prints an `Updating` line; (c) any tool's image not locally available → run sync; (d) `.bv/bin/` missing or empty → write shims. Then exec. The fast path (no work needed) is silent. Pass `--no-sync` (or set `BV_EXEC_NO_SYNC=1`) to skip the auto-sync entirely for tight inner loops.
 - **`bv cache size`** prints the cache footprint by category (manifests, indexes, SIFs, datasets, tmp) with a spinner during the walk.
 - **`bv cache list`** prints a flat inventory of cached SIFs, tool manifests, index clones, and datasets, sorted by category.

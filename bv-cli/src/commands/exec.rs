@@ -74,7 +74,7 @@ async fn auto_sync(
             "Updating".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string())
         );
         crate::commands::lock::run(false, None).await?;
-        crate::commands::sync::run(false, None, None).await?;
+        crate::commands::sync::run(false, None, None, None).await?;
         return Ok(());
     }
 
@@ -83,7 +83,7 @@ async fn auto_sync(
     }
 
     if any_image_missing(&lockfile)? {
-        crate::commands::sync::run(false, None, None).await?;
+        crate::commands::sync::run(false, None, None, None).await?;
         return Ok(());
     }
 

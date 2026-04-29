@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{ArgAction, Parser, Subcommand};
 
 use crate::commands::show::ShowFormat;
@@ -39,6 +41,10 @@ pub enum Commands {
         /// Refuse to add tools that do not carry a Sigstore image signature.
         #[arg(long)]
         require_signed: bool,
+        /// Maximum concurrent image pulls. Defaults to min(8, num_cpus). Tune
+        /// higher on fast networks; lower on metered/throttled connections.
+        #[arg(long, env = "BV_JOBS")]
+        jobs: Option<usize>,
     },
 
     /// Verify a tool manifest against the conformance test suite.
@@ -162,6 +168,9 @@ pub enum Commands {
         /// Container backend: `docker`, `apptainer`, or `auto` (default).
         #[arg(long, env = "BV_BACKEND")]
         backend: Option<String>,
+        /// Maximum concurrent image pulls. Defaults to min(8, num_cpus).
+        #[arg(long, env = "BV_JOBS")]
+        jobs: Option<usize>,
     },
 
     /// Check that the environment is correctly configured.
@@ -202,6 +211,21 @@ pub enum Commands {
         /// Shell to spawn (defaults to $SHELL).
         #[arg(long)]
         shell: Option<String>,
+    },
+
+    /// Export this project's tools to another package manager's format.
+    ///
+    /// One-way escape hatch: emits a conda env YAML approximating the bv
+    /// project so a hesitant lab can `conda env create -f environment.yml`.
+    /// Tools sourced from biocontainers are mapped to bioconda specs; custom
+    /// OCI images are listed in a comment block with no spec line.
+    Export {
+        /// Output format. Only `conda` is supported today.
+        #[arg(long, default_value = "conda")]
+        format: String,
+        /// Write to a file instead of stdout.
+        #[arg(long, short = 'o')]
+        output: Option<PathBuf>,
     },
 
     /// Build and publish a tool to bv-registry (opens a PR).

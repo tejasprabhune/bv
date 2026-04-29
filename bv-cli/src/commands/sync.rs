@@ -23,6 +23,7 @@ pub async fn run(
     frozen: bool,
     registry_flag: Option<&str>,
     backend_flag: Option<&str>,
+    jobs: Option<usize>,
 ) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let bv_lock_path = cwd.join("bv.lock");
@@ -80,7 +81,7 @@ pub async fn run(
     sorted_tools.sort_by(|a, b| a.tool_id.cmp(&b.tool_id));
 
     // Mirror `bv add`: pull missing images in parallel with cap 3.
-    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(3));
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(crate::ops::default_jobs(jobs)));
     let mut join_set: tokio::task::JoinSet<PullOutcome> = tokio::task::JoinSet::new();
 
     for entry in sorted_tools {

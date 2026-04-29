@@ -26,6 +26,7 @@ pub async fn run(
     allow_experimental: bool,
     backend_flag: Option<&str>,
     require_signed: bool,
+    jobs: Option<usize>,
 ) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let bv_toml_path = cwd.join("bv.toml");
@@ -199,7 +200,7 @@ pub async fn run(
         .map_err(|e| anyhow::anyhow!("runtime not available: {e}"))?;
 
     let mp = MultiProgress::new();
-    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(3));
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(crate::ops::default_jobs(jobs)));
     let mut join_set: tokio::task::JoinSet<anyhow::Result<bv_core::lockfile::LockfileEntry>> =
         tokio::task::JoinSet::new();
 

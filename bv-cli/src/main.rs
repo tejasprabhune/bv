@@ -35,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
             allow_experimental,
             backend,
             require_signed,
+            jobs,
         } => {
             commands::add::run(
                 tools,
@@ -43,6 +44,7 @@ async fn main() -> anyhow::Result<()> {
                 *allow_experimental,
                 backend.as_deref(),
                 *require_signed,
+                *jobs,
             )
             .await
         }
@@ -100,8 +102,12 @@ async fn main() -> anyhow::Result<()> {
             frozen,
             registry,
             backend,
-        } => commands::sync::run(*frozen, registry.as_deref(), backend.as_deref()).await,
+            jobs,
+        } => commands::sync::run(*frozen, registry.as_deref(), backend.as_deref(), *jobs).await,
         Commands::Doctor => commands::doctor::run(),
+        Commands::Export { format, output } => {
+            commands::export::run(format, output.as_deref())
+        }
         Commands::Data(dc) => commands::data_cmd(dc).await,
         Commands::Cache(cache_cmd) => commands::cache_cmd(cache_cmd),
         Commands::Publish {
