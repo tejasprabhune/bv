@@ -84,7 +84,12 @@ async fn main() -> anyhow::Result<()> {
             ..
         } => commands::run::run(tool, args, backend.as_deref()).await,
         Commands::List { binaries } => commands::list::run(*binaries),
-        Commands::Exec { command, args, .. } => commands::exec::run(command, args),
+        Commands::Exec {
+            command,
+            args,
+            no_sync,
+            ..
+        } => commands::exec::run(command, args, *no_sync).await,
         Commands::Shell { shell } => commands::shell::run(shell.as_deref()),
         Commands::Show { tool, format } => commands::show::run(tool, format.clone()),
         Commands::Info { tool } => commands::run::info(tool),

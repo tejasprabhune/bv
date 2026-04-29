@@ -176,11 +176,20 @@ pub enum Commands {
     Cache(CacheCommands),
 
     /// Run a command with bv-managed binaries on PATH (for scripts and CI).
+    ///
+    /// By default, mirrors `uv run`: re-locks if bv.toml is newer than bv.lock,
+    /// pulls any missing images, and regenerates shims if needed before exec.
+    /// Pass `--no-sync` (or set `BV_EXEC_NO_SYNC=1`) to skip all of that for a
+    /// fast inner loop.
     #[command(disable_help_flag = true, disable_version_flag = true)]
     Exec {
         /// Print help for `bv exec`.
         #[arg(short = 'h', action = ArgAction::Help, exclusive = true)]
         help: Option<bool>,
+        /// Skip the auto-sync (lock-staleness check, missing-image pulls,
+        /// shim regeneration). Equivalent to `BV_EXEC_NO_SYNC=1`.
+        #[arg(long)]
+        no_sync: bool,
         /// Command to run.
         command: String,
         /// Arguments forwarded to the command.
