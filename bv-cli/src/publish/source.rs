@@ -40,10 +40,9 @@ impl Source {
             };
             let path = path.trim_end_matches(".git");
             Some(ref_from_url.map_or_else(|| path.to_string(), |r| format!("{path}@{r}")))
-        } else if let Some(rest) = spec.strip_prefix("git@github.com:") {
-            Some(rest.trim_end_matches(".git").to_string())
         } else {
-            None
+            spec.strip_prefix("git@github.com:")
+                .map(|rest| rest.trim_end_matches(".git").to_string())
         };
 
         if let Some(gh) = github_part {
