@@ -79,11 +79,13 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
     };
 
     // Build the OciRef with pinned digest for reproducible execution.
+    // Keep the tag — it must agree with what `bv sync` pulls (sync.rs also
+    // keeps the tag) so the apptainer backend, which keys SIF lookups by
+    // tag-context rather than registry digest, can find the local image.
     let mut image: OciRef = entry
         .image_reference
         .parse()
         .map_err(|e| anyhow::anyhow!("invalid image ref in lockfile: {e}"))?;
-    image.tag = None;
     image.digest = Some(entry.image_digest.clone());
 
     // Decide command. Cases (in order):

@@ -85,11 +85,28 @@ pub fn run() -> anyhow::Result<()> {
     let root = cache.root().clone();
     kv("path", &root.display().to_string());
 
+    // Recursive sizing of ~/.cache/bv can take seconds for users with many GB
+    // pulled. Show a spinner so it doesn't look frozen.
+    let spinner = indicatif::ProgressBar::new_spinner();
+    spinner.set_style(
+        indicatif::ProgressStyle::with_template("    {spinner:.cyan} {msg}")
+            .unwrap()
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+    );
+    spinner.set_message("computing cache size");
+    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
     let total = dir_size_bytes(&root);
-    let image_count = {
-        let images_dir = cache.image_dir("");
-        let parent = images_dir.parent().unwrap_or(&root);
-        count_subdirs(parent)
+    spinner.finish_and_clear();
+
+    // The previous code did `cache.image_dir("").parent()`, which returned
+    // ~/.cache/bv (the cache root) and counted every top-level child (data,
+    // index, sif, images, tmp) as an "image". Use the images directory
+    // directly: `image_dir("")` itself is `<root>/images/`.
+    let images_dir = cache.image_dir("");
+    let image_count = if images_dir.exists() {
+        count_subdirs(&images_dir)
+    } else {
+        0
     };
     kv(
         "size",

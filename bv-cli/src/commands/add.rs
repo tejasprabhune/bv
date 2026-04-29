@@ -5,7 +5,7 @@ use std::io::Write as _;
 use anyhow::Context;
 use indicatif::MultiProgress;
 use owo_colors::{OwoColorize, Stream};
-use semver::{Version, VersionReq};
+use semver::VersionReq;
 
 use bv_core::cache::CacheLayout;
 use bv_core::hardware::DetectedHardware;
@@ -312,14 +312,11 @@ pub fn parse_tool_spec(spec: &str) -> anyhow::Result<(String, VersionReq)> {
     if let Some((id, ver_str)) = spec.split_once('@') {
         let req = if ver_str == "latest" {
             VersionReq::STAR
-        } else if ver_str.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-            ver_str.parse::<Version>().map_err(|_| {
-                anyhow::anyhow!(
-                    "'{}' is not a valid semver version. Use @2.15.0, @^2.15, or @>=2.14",
-                    ver_str
-                )
-            })?;
-            VersionReq::parse(&format!("={}", ver_str))
+        } else if is_bare_version(ver_str) {
+            // Bare digits-and-dots without a comparator default to caret,
+            // matching Cargo: `tool@2` -> `^2`, `tool@2.5.1` -> `^2.5.1`.
+            // Users who want exact match write `tool@=2.5.1`.
+            VersionReq::parse(&format!("^{}", ver_str))
                 .map_err(|e| anyhow::anyhow!("invalid version req: {}", e))?
         } else {
             VersionReq::parse(ver_str)
@@ -329,6 +326,14 @@ pub fn parse_tool_spec(spec: &str) -> anyhow::Result<(String, VersionReq)> {
     } else {
         Ok((spec.to_string(), VersionReq::STAR))
     }
+}
+
+/// True when `s` is a bare semver-shaped version (digits and dots only),
+/// i.e. has no comparator like `=`, `^`, `~`, `>=`, `<`, `*`, etc.
+fn is_bare_version(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars().next().is_some_and(|c| c.is_ascii_digit())
+        && s.chars().all(|c| c.is_ascii_digit() || c == '.')
 }
 
 pub fn cache_manifest(cache: &CacheLayout, manifest: &Manifest) -> anyhow::Result<()> {
@@ -390,5 +395,64 @@ fn verify_signature(tool_id: &str, manifest: &Manifest) -> anyhow::Result<()> {
             "cosign not found; install it from https://docs.sigstore.dev/cosign/installation/"
         ),
         Err(e) => anyhow::bail!("cosign failed for '{}': {e}", tool_id),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parsed_req(spec: &str) -> String {
+        parse_tool_spec(spec).unwrap().1.to_string()
+    }
+
+    #[test]
+    fn bare_major_is_caret() {
+        assert_eq!(parsed_req("blast@2"), "^2");
+    }
+
+    #[test]
+    fn bare_minor_is_caret() {
+        assert_eq!(parsed_req("blast@2.5"), "^2.5");
+    }
+
+    #[test]
+    fn bare_patch_is_caret() {
+        assert_eq!(parsed_req("blast@2.5.1"), "^2.5.1");
+    }
+
+    #[test]
+    fn explicit_equal_is_preserved() {
+        assert_eq!(parsed_req("blast@=2.5.1"), "=2.5.1");
+    }
+
+    #[test]
+    fn star_is_preserved() {
+        assert_eq!(parsed_req("blast@*"), "*");
+    }
+
+    #[test]
+    fn explicit_caret_is_preserved() {
+        assert_eq!(parsed_req("blast@^2"), "^2");
+    }
+
+    #[test]
+    fn tilde_is_preserved() {
+        assert_eq!(parsed_req("blast@~2.5"), "~2.5");
+    }
+
+    #[test]
+    fn comparison_is_preserved() {
+        assert_eq!(parsed_req("blast@>=2.14"), ">=2.14");
+    }
+
+    #[test]
+    fn latest_is_star() {
+        assert_eq!(parsed_req("blast@latest"), "*");
+    }
+
+    #[test]
+    fn no_at_is_star() {
+        assert_eq!(parsed_req("blast"), "*");
     }
 }

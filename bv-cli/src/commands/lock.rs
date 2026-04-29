@@ -27,8 +27,14 @@ pub async fn run(check: bool, registry_flag: Option<&str>) -> anyhow::Result<()>
     let cache = CacheLayout::new();
     let index = crate::registry::open_index(&registry_url, &cache);
 
-    // bv lock uses the cached index; run `bv add` to fetch the latest registry state.
+    // bv lock requires a local index clone but also opportunistically refreshes
+    // it on the same TTL the rest of the CLI uses, so `bv lock --check` in CI
+    // doesn't return false negatives just because the cached clone is stale.
     crate::registry::require_index(&index, &registry_url)?;
+    let refreshed = index
+        .refresh_if_stale(crate::registry::STALE_TTL)
+        .with_context(|| format!("registry refresh failed for '{}'", registry_url))?;
+    crate::registry::maybe_print_refresh(refreshed);
 
     let resolved = ops::resolve_all(&bv_toml.tools, &index)?;
 

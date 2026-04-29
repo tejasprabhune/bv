@@ -95,9 +95,33 @@ async fn fetch_one(
         anyhow::bail!("dataset '{id}' has no source_urls in its manifest");
     }
 
+    // Atomic-fetch contract: download into a per-fetch staging directory under
+    // tmp_dir(), then rename it into place as the very last step. This makes
+    // the cache-hit guard above (`final_dir.exists()`) correct: `final_dir`
+    // exists iff a previous fetch completed cleanly.
     let tmp_dir = cache.tmp_dir();
     std::fs::create_dir_all(&tmp_dir)?;
-    std::fs::create_dir_all(&final_dir)?;
+    let staging_dir = tmp_dir.join(format!("staging-{id}-{ver}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&staging_dir);
+    std::fs::create_dir_all(&staging_dir)?;
+
+    // RAII guard: if we exit this scope without committing, blow away the
+    // staging dir so a partial fetch can't leak.
+    struct StagingGuard<'a> {
+        path: &'a std::path::Path,
+        committed: bool,
+    }
+    impl Drop for StagingGuard<'_> {
+        fn drop(&mut self) {
+            if !self.committed {
+                let _ = std::fs::remove_dir_all(self.path);
+            }
+        }
+    }
+    let mut guard = StagingGuard {
+        path: &staging_dir,
+        committed: false,
+    };
 
     eprintln!(
         "  {} {id}@{ver}",
@@ -110,7 +134,7 @@ async fn fetch_one(
             .rsplit('/')
             .find(|s| !s.is_empty())
             .unwrap_or("download");
-        let tmp_path = tmp_dir.join(format!("{id}-{ver}-{filename}"));
+        let tmp_path = staging_dir.join(format!("{id}-{ver}-{filename}"));
 
         // The primary file's sha256 is enforced when declared; sidecars
         // (e.g. a `.tbi` alongside a `.vcf.gz`) are never integrity-checked.
@@ -123,28 +147,41 @@ async fn fetch_one(
         downloaded.push(tmp_path);
     }
 
+    // Build the staged final layout under staging_dir/final, then promote it
+    // to the real final_dir with a single atomic rename.
+    let staged_final = staging_dir.join("final");
+    std::fs::create_dir_all(&staged_final)?;
+
     // Apply the post-download action to the primary file only; sidecars are
-    // moved into the final cache directory as-is.
+    // moved into the staged final directory as-is.
     let primary = downloaded.remove(0);
     match manifest.data.post_download_action {
         PostDownloadAction::Noop => {
-            let dest = final_dir.join(primary.file_name().unwrap());
-            std::fs::rename(&primary, &dest).context("failed to move downloaded file to cache")?;
+            let dest = staged_final.join(primary.file_name().unwrap());
+            std::fs::rename(&primary, &dest).context("failed to stage downloaded file")?;
         }
         PostDownloadAction::Extract => {
-            extract_archive(&primary, &final_dir)?;
+            extract_archive(&primary, &staged_final)?;
             let _ = std::fs::remove_file(&primary);
         }
         PostDownloadAction::Decompress => {
-            decompress_gzip(&primary, &final_dir)?;
+            decompress_gzip(&primary, &staged_final)?;
             let _ = std::fs::remove_file(&primary);
         }
     }
     for extra in downloaded {
-        let dest = final_dir.join(extra.file_name().unwrap());
-        std::fs::rename(&extra, &dest)
-            .context("failed to move downloaded sidecar file to cache")?;
+        let dest = staged_final.join(extra.file_name().unwrap());
+        std::fs::rename(&extra, &dest).context("failed to stage downloaded sidecar file")?;
     }
+
+    // Promote the staged dir to the cache. final_dir's parent must exist; the
+    // cache layout owns its parent so create it just in case.
+    if let Some(parent) = final_dir.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(&staged_final, &final_dir)
+        .context("failed to move staged dataset to cache")?;
+    guard.committed = true;
 
     eprintln!(
         "  {} {id}@{ver}  {}",
@@ -164,36 +201,18 @@ async fn download_verified(
     expected_sha256: Option<&str>,
     size_hint: Option<u64>,
 ) -> anyhow::Result<()> {
+    // NOTE: resume support was removed. The previous implementation reset the
+    // hasher on resume so the sha256 check covered only the newly downloaded
+    // bytes, not the full file — silently letting corrupted partial files
+    // through. A correct resume design needs to either rehash the existing
+    // bytes before continuing, or track per-chunk hashes. Until that exists,
+    // every fetch is a fresh download.
     let client = reqwest::Client::new();
-
-    // Support resume: check if partial file exists.
-    let existing_bytes = dest.metadata().map(|m| m.len()).unwrap_or(0);
-
-    let response = if existing_bytes > 0 {
-        let req = client
-            .get(url)
-            .header("Range", format!("bytes={existing_bytes}-"))
-            .send()
-            .await
-            .context("HTTP request failed")?;
-        // Server may not honor Range; if it returns 200 restart from scratch.
-        if req.status() == reqwest::StatusCode::PARTIAL_CONTENT {
-            req
-        } else {
-            // Restart
-            client
-                .get(url)
-                .send()
-                .await
-                .context("HTTP request failed")?
-        }
-    } else {
-        client
-            .get(url)
-            .send()
-            .await
-            .context("HTTP request failed")?
-    };
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .context("HTTP request failed")?;
 
     if !response.status().is_success() {
         anyhow::bail!("HTTP {} for {url}", response.status());
@@ -209,9 +228,8 @@ async fn download_verified(
 
     let mut file = tokio::fs::OpenOptions::new()
         .create(true)
-        .append(existing_bytes > 0)
         .write(true)
-        .truncate(existing_bytes == 0)
+        .truncate(true)
         .open(dest)
         .await
         .context("failed to open destination file")?;

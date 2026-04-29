@@ -13,6 +13,12 @@ use crate::commands::add::short_digest;
 use crate::ops;
 use crate::progress::CliProgressReporter;
 
+struct PullOutcome {
+    entry: bv_core::lockfile::LockfileEntry,
+    reporter: CliProgressReporter,
+    result: bv_core::error::Result<bv_runtime::ImageDigest>,
+}
+
 pub async fn run(
     frozen: bool,
     registry_flag: Option<&str>,
@@ -42,14 +48,25 @@ pub async fn run(
         check_frozen(&bv_toml, &lockfile)?;
     }
 
-    // Drift detection: if registry is available, compare manifest sha256.
-    // This is best-effort; we proceed even if the registry is unreachable.
-    let drift_warnings = check_drift(&lockfile, registry_flag).unwrap_or_default();
-
     let bv_toml = {
         let p = std::env::current_dir()?.join("bv.toml");
         bv_core::project::BvToml::from_path(&p).ok()
     };
+
+    // Drift detection: best-effort, never fatal. We still surface failures to
+    // the user so a silent network/index/manifest issue doesn't masquerade as
+    // a clean tree.
+    let drift_warnings = match check_drift(&lockfile, registry_flag, bv_toml.as_ref()) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!(
+                "  {} drift check failed: {e}; run `bv lock` to refresh",
+                "warning:".if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string())
+            );
+            Vec::new()
+        }
+    };
+
     let runtime = crate::runtime_select::resolve_runtime(backend_flag, bv_toml.as_ref())?;
 
     runtime
@@ -59,14 +76,18 @@ pub async fn run(
     let mp = MultiProgress::new();
     let mut errors: Vec<String> = Vec::new();
 
-    let mut sorted_tools: Vec<_> = lockfile.tools.values().collect();
+    let mut sorted_tools: Vec<_> = lockfile.tools.values().cloned().collect();
     sorted_tools.sort_by(|a, b| a.tool_id.cmp(&b.tool_id));
+
+    // Mirror `bv add`: pull missing images in parallel with cap 3.
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(3));
+    let mut join_set: tokio::task::JoinSet<PullOutcome> = tokio::task::JoinSet::new();
 
     for entry in sorted_tools {
         let base_ref = crate::ops::base_image_ref(&entry.image_reference);
 
         if runtime.is_locally_available(&base_ref, &entry.image_digest) {
-            try_restore_manifest(entry);
+            try_restore_manifest(&entry);
             eprintln!(
                 "  {} {} {}",
                 "Present".if_supports_color(Stream::Stderr, |t| t.green().to_string()),
@@ -101,7 +122,33 @@ pub async fn run(
                 .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
         ));
 
-        match runtime.pull(&oci_ref, &reporter) {
+        let permit = sem.clone().acquire_owned().await.expect("semaphore closed");
+        let rt = runtime.clone();
+        join_set.spawn_blocking(move || {
+            let _permit = permit;
+            let result = rt.pull(&oci_ref, &reporter);
+            PullOutcome {
+                entry,
+                reporter,
+                result,
+            }
+        });
+    }
+
+    while let Some(joined) = join_set.join_next().await {
+        let outcome = match joined {
+            Ok(o) => o,
+            Err(e) => {
+                errors.push(format!("pull task panicked: {e}"));
+                continue;
+            }
+        };
+        let PullOutcome {
+            entry,
+            reporter,
+            result,
+        } = outcome;
+        match result {
             Ok(pulled_digest) => {
                 if pulled_digest.0 != entry.image_digest {
                     errors.push(format!(
@@ -111,7 +158,7 @@ pub async fn run(
                         short_digest(&pulled_digest.0),
                     ));
                 } else {
-                    try_restore_manifest(entry);
+                    try_restore_manifest(&entry);
                     reporter.println(&format!(
                         "  {} {} {}  {}",
                         "Synced"
@@ -181,18 +228,23 @@ fn check_frozen(bv_toml: &BvToml, lockfile: &bv_core::lockfile::Lockfile) -> any
 }
 
 /// Best-effort drift detection: compare lockfile manifest sha256 against
-/// the current registry. Returns None if registry is unavailable.
+/// the current registry. Errors propagate so the caller can surface them
+/// (network down, index missing, malformed manifest); they are not fatal.
 fn check_drift(
     lockfile: &bv_core::lockfile::Lockfile,
     registry_flag: Option<&str>,
-) -> Option<Vec<String>> {
-    let registry_url = crate::registry::resolve_registry_url(registry_flag, None);
+    bv_toml: Option<&BvToml>,
+) -> anyhow::Result<Vec<String>> {
+    // Honor [registry] in bv.toml so private-registry projects drift-check
+    // against their own registry, matching what `bv add` and `bv lock` do.
+    let registry_url = crate::registry::resolve_registry_url(registry_flag, bv_toml);
 
     let cache = bv_core::cache::CacheLayout::new();
     let index = crate::registry::open_index(&registry_url, &cache);
 
-    // Suppress refresh errors; drift detection is best-effort.
-    index.refresh_if_stale(crate::registry::STALE_TTL).ok()?;
+    index
+        .refresh_if_stale(crate::registry::STALE_TTL)
+        .with_context(|| format!("registry refresh failed for '{}'", registry_url))?;
 
     let mut warnings = Vec::new();
     for (tool_id, entry) in &lockfile.tools {
@@ -216,7 +268,7 @@ fn check_drift(
             ));
         }
     }
-    Some(warnings)
+    Ok(warnings)
 }
 
 /// Restore the cached manifest from the local git index clone if it is missing.

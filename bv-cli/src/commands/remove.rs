@@ -29,6 +29,11 @@ pub fn run(tool: &str) -> anyhow::Result<()> {
     lockfile.tools.remove(tool);
     let _ = lockfile.rebuild_binary_index(&bv_toml.binary_overrides);
 
+    // True two-file atomicity isn't possible without a journal, but writing
+    // bv.toml FIRST minimizes the bad case: if the second write fails, the
+    // user's source-of-truth (bv.toml) is correct and `bv lock` will
+    // regenerate bv.lock. The previous order (lock first) left bv.lock with
+    // the tool removed but bv.toml still declaring it.
     bv_toml.to_path(&bv_toml_path)?;
     BvLock::to_path(&lockfile, &bv_lock_path)?;
     crate::shims::write_shims(&cwd, &lockfile)?;

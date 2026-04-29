@@ -32,9 +32,13 @@ pub async fn run(
     let all_entries = load_entries(&index);
     let q = query.to_lowercase();
 
+    // Deprecated tools are hidden by default but surfaced (with a marker) when
+    // `--tier all` is requested, so users explicitly asking to see everything
+    // still see deprecated entries.
+    let include_deprecated = matches!(tier_flag, Some("all"));
     let mut results: Vec<&SearchEntry> = all_entries
         .iter()
-        .filter(|e| !e.deprecated)
+        .filter(|e| include_deprecated || !e.deprecated)
         .filter(|e| matches_tier_filter(e, tier_flag))
         .filter(|e| q.is_empty() || score(e, &q) > 0)
         .collect();
@@ -74,19 +78,26 @@ pub async fn run(
 
     for entry in &results {
         let tier_display = format_tier(&entry.tier);
-        let desc = entry
+        let raw_desc = entry
             .description
             .as_deref()
             .unwrap_or("")
             .chars()
             .take(60)
             .collect::<String>();
+        let desc = if entry.deprecated {
+            let marker = "[deprecated]"
+                .if_supports_color(Stream::Stdout, |t| t.red().to_string())
+                .to_string();
+            format!("{marker} {raw_desc}")
+        } else {
+            raw_desc
+                .if_supports_color(Stream::Stdout, |t| t.dimmed().to_string())
+                .to_string()
+        };
         println!(
             "  {:<w_id$}  {:<w_ver$}  {:<12}  {}",
-            entry.id,
-            entry.version,
-            tier_display,
-            desc.if_supports_color(Stream::Stdout, |t| t.dimmed().to_string()),
+            entry.id, entry.version, tier_display, desc,
         );
     }
 

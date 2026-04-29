@@ -102,6 +102,16 @@ fn check_binaries(
     let smoke = tool.smoke.clone().unwrap_or_default();
     let mut failures = Vec::new();
 
+    // Propagate the manifest's entrypoint.env to the probe so tools that need
+    // PATH / LD_LIBRARY_PATH set at startup don't false-fail. RunSpec.env is a
+    // HashMap; entrypoint.env is keyed by String so the iterate-and-clone is
+    // backend-agnostic (works for both HashMap and BTreeMap source types).
+    let entry_env: std::collections::HashMap<String, String> = tool
+        .entrypoint
+        .as_ref()
+        .map(|ep| ep.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        .unwrap_or_default();
+
     for binary in binaries {
         if smoke.skip.iter().any(|s| s == binary) {
             continue;
@@ -123,7 +133,7 @@ fn check_binaries(
             let spec = RunSpec {
                 image: image.clone(),
                 command,
-                env: Default::default(),
+                env: entry_env.clone(),
                 mounts: vec![Mount {
                     host_path: tmp.path().to_path_buf(),
                     container_path: PathBuf::from("/workspace"),

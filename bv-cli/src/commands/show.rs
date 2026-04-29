@@ -65,14 +65,23 @@ fn load_manifest(tool: &str) -> anyhow::Result<Manifest> {
 }
 
 fn find_latest_version_in_dir(dir: &PathBuf) -> anyhow::Result<PathBuf> {
-    let mut entries: Vec<_> = std::fs::read_dir(dir)?
+    // Sort by parsed semver::Version so 2.10.1 beats 2.9.0 (lexicographic
+    // sort places "2.10" before "2.9" because of the leading character).
+    // Files whose stems don't parse as semver are skipped silently.
+    let mut versioned: Vec<(semver::Version, PathBuf)> = std::fs::read_dir(dir)?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().is_some_and(|x| x == "toml"))
-        .map(|e| e.path())
+        .filter_map(|e| {
+            let path = e.path();
+            let stem = path.file_stem().and_then(|s| s.to_str())?;
+            let v = semver::Version::parse(stem).ok()?;
+            Some((v, path))
+        })
         .collect();
-    entries.sort();
-    entries
+    versioned.sort_by(|a, b| a.0.cmp(&b.0));
+    versioned
         .pop()
+        .map(|(_, p)| p)
         .ok_or_else(|| anyhow::anyhow!("no manifest files found in {}", dir.display()))
 }
 
@@ -341,6 +350,16 @@ description = "Tabular BLAST results"
 command = "blastn"
 args_template = "-query {query} -db {db} -out {output} -num_threads {cpu_cores}"
 "#;
+
+    #[test]
+    fn find_latest_version_in_dir_uses_semver_order() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        for v in ["2.9.0", "2.10.0", "2.10.1"] {
+            std::fs::write(tmp.path().join(format!("{v}.toml")), "").unwrap();
+        }
+        let path = super::find_latest_version_in_dir(&tmp.path().to_path_buf()).unwrap();
+        assert_eq!(path.file_stem().unwrap().to_str().unwrap(), "2.10.1");
+    }
 
     #[test]
     fn json_output_snapshot() {
