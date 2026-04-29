@@ -71,15 +71,29 @@ impl FromStr for OciRef {
             (s, None)
         };
 
-        let (name_part, tag) = if let Some(pos) = image_part.rfind(':') {
-            let before = &image_part[..pos];
-            if before.contains('/') || !before.contains(':') {
+        // Tag detection rules:
+        // - If there is no '/', the input is a single image name with an
+        //   optional tag (e.g. `foo:1.0`).
+        // - Otherwise, only the segment after the last '/' may carry a tag.
+        //   This avoids treating a registry port (`localhost:5000/foo`) as a tag.
+        let (name_part, tag) = if !image_part.contains('/') {
+            if let Some(pos) = image_part.rfind(':') {
                 (&image_part[..pos], Some(image_part[pos + 1..].to_string()))
             } else {
                 (image_part, None)
             }
         } else {
-            (image_part, None)
+            let last_slash = image_part.rfind('/').unwrap();
+            let last_segment = &image_part[last_slash + 1..];
+            if let Some(rel_colon) = last_segment.find(':') {
+                let split = last_slash + 1 + rel_colon;
+                (
+                    &image_part[..split],
+                    Some(image_part[split + 1..].to_string()),
+                )
+            } else {
+                (image_part, None)
+            }
         };
 
         let (registry, repository) = split_registry(name_part);
@@ -266,5 +280,63 @@ mod tests {
     fn docker_arg_keeps_external_registry() {
         let r: OciRef = "quay.io/biocontainers/blast:2.15.0".parse().unwrap();
         assert_eq!(r.docker_arg(), "quay.io/biocontainers/blast:2.15.0");
+    }
+
+    #[test]
+    fn parse_localhost_port_registry_with_repo() {
+        let r: OciRef = "localhost:5000/foo/bar".parse().unwrap();
+        assert_eq!(r.registry, "localhost:5000");
+        assert_eq!(r.repository, "foo/bar");
+        assert!(r.tag.is_none());
+        assert!(r.digest.is_none());
+    }
+
+    #[test]
+    fn parse_localhost_port_registry_with_repo_and_tag() {
+        let r: OciRef = "localhost:5000/foo/bar:1.0".parse().unwrap();
+        assert_eq!(r.registry, "localhost:5000");
+        assert_eq!(r.repository, "foo/bar");
+        assert_eq!(r.tag.as_deref(), Some("1.0"));
+    }
+
+    #[test]
+    fn parse_single_name() {
+        let r: OciRef = "foo".parse().unwrap();
+        assert_eq!(r.registry, "docker.io");
+        assert_eq!(r.repository, "foo");
+        assert!(r.tag.is_none());
+    }
+
+    #[test]
+    fn parse_single_name_with_tag() {
+        let r: OciRef = "foo:1.0".parse().unwrap();
+        assert_eq!(r.registry, "docker.io");
+        assert_eq!(r.repository, "foo");
+        assert_eq!(r.tag.as_deref(), Some("1.0"));
+    }
+
+    #[test]
+    fn parse_two_segments_no_registry() {
+        let r: OciRef = "foo/bar".parse().unwrap();
+        assert_eq!(r.registry, "docker.io");
+        assert_eq!(r.repository, "foo/bar");
+        assert!(r.tag.is_none());
+    }
+
+    #[test]
+    fn parse_quay_with_tag() {
+        let r: OciRef = "quay.io/biocontainers/blast:2.14.0".parse().unwrap();
+        assert_eq!(r.registry, "quay.io");
+        assert_eq!(r.repository, "biocontainers/blast");
+        assert_eq!(r.tag.as_deref(), Some("2.14.0"));
+    }
+
+    #[test]
+    fn parse_ghcr_with_digest() {
+        let r: OciRef = "ghcr.io/owner/repo@sha256:abc".parse().unwrap();
+        assert_eq!(r.registry, "ghcr.io");
+        assert_eq!(r.repository, "owner/repo");
+        assert!(r.tag.is_none());
+        assert_eq!(r.digest.as_deref(), Some("sha256:abc"));
     }
 }

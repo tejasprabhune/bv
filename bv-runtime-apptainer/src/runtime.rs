@@ -82,12 +82,34 @@ impl ContainerRuntime for ApptainerRuntime {
 
         // Fast path: caller already knows the digest (e.g. `bv sync` from a
         // lockfile) and the SIF is on disk under its canonical key.
+        // Re-hash the cached file to catch on-disk tampering or corruption
+        // before silently trusting it.
         if let Some(known) = &image.digest {
             let canonical = self.sif_for_digest(known);
             if canonical.exists() {
-                // Clear the spinner; the outer "Added" line is the success summary.
-                progress.finish("");
-                return Ok(ImageDigest(known.clone()));
+                let actual = file_sha256(&canonical).map_err(|e| {
+                    BvError::RuntimeError(format!(
+                        "failed to hash cached SIF {}: {e}",
+                        canonical.display()
+                    ))
+                })?;
+                if &actual == known {
+                    // Clear the spinner; the outer "Added" line is the success summary.
+                    progress.finish("");
+                    return Ok(ImageDigest(known.clone()));
+                }
+                // Mismatch: drop the bad file and fall through to a fresh pull.
+                progress.update(
+                    &format!(
+                        "cached SIF {} sha256 {} does not match expected {}; re-pulling",
+                        canonical.display(),
+                        actual,
+                        known
+                    ),
+                    None,
+                    None,
+                );
+                let _ = std::fs::remove_file(&canonical);
             }
         }
 
@@ -143,6 +165,16 @@ impl ContainerRuntime for ApptainerRuntime {
 
         let mut cmd = Command::new(&self.bin);
         cmd.arg("run");
+
+        // Isolate the container from the host:
+        //   --cleanenv: do not inherit the user's environment (HOME, PATH,
+        //               SSH_*, AWS_* secrets, etc.). Manifest-declared env
+        //               vars are still passed via explicit `--env` flags
+        //               below, which `--cleanenv` does not affect.
+        //   --no-home : do not bind-mount the host $HOME into the container.
+        // Apptainer/Singularity already runs as the calling uid:gid by
+        // default, so an explicit `--userns` is not required here (Fix #9).
+        cmd.arg("--cleanenv").arg("--no-home");
 
         if let Some(wd) = &spec.working_dir {
             cmd.args(["--pwd", &wd.to_string_lossy()]);

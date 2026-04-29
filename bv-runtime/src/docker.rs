@@ -118,6 +118,13 @@ impl ContainerRuntime for DockerRuntime {
         let mut cmd = Command::new("docker");
         cmd.arg("run").arg("--rm");
 
+        // Run as the host user so files written into bind mounts are not
+        // owned by root. On non-Unix platforms `current_uid_gid` returns
+        // None and we let docker pick the image default.
+        if let Some((uid, gid)) = current_uid_gid() {
+            cmd.args(["--user", &format!("{uid}:{gid}")]);
+        }
+
         if let Some(wd) = &spec.working_dir {
             cmd.args(["-w", &wd.to_string_lossy()]);
         }
@@ -236,6 +243,31 @@ impl ContainerRuntime for DockerRuntime {
 }
 
 impl DockerRuntime {
+    /// Pull `image` and bail if the registry-reported digest does not match
+    /// `expected_digest`.
+    ///
+    /// `pull` itself does not enforce this: it returns whatever digest the
+    /// registry hands back. Most callers (`bv sync`) already cross-check
+    /// against the lockfile, but the `bv run` and `bv conform` paths short
+    /// circuit through `is_locally_available`, which only proves that a
+    /// matching RepoDigests entry exists in the local cache, not that the
+    /// upstream image still resolves to the pinned sha. New code that
+    /// requires a digest pin should call this method instead of `pull`.
+    //
+    // TODO: route `bv run` / `bv conform` through this once the
+    // `ContainerRuntime` trait gains a `pull_verified` method (would
+    // touch bv-cli/runtime_select and the apptainer impl, so deferred).
+    pub fn pull_verified(
+        &self,
+        image: &OciRef,
+        expected_digest: &str,
+        progress: &dyn ProgressReporter,
+    ) -> Result<ImageDigest> {
+        let got = self.pull(image, progress)?;
+        verify_digest(&image.to_string(), expected_digest, &got.0)?;
+        Ok(got)
+    }
+
     /// Get the content digest for a locally available image by reference.
     fn repo_digest(&self, image_ref: &str) -> Result<String> {
         let output = Command::new("docker")
@@ -276,6 +308,37 @@ impl DockerRuntime {
     }
 }
 
+/// Return the calling process's effective uid:gid on Unix.
+///
+/// Falls back to `None` on non-Unix targets (Windows) so callers can skip
+/// passing `--user` rather than guessing.
+#[cfg(unix)]
+fn current_uid_gid() -> Option<(u32, u32)> {
+    // SAFETY: getuid()/getgid() are async-signal-safe and never fail per POSIX.
+    unsafe extern "C" {
+        fn getuid() -> u32;
+        fn getgid() -> u32;
+    }
+    Some((unsafe { getuid() }, unsafe { getgid() }))
+}
+
+#[cfg(not(unix))]
+fn current_uid_gid() -> Option<(u32, u32)> {
+    None
+}
+
+/// Compare a registry-returned digest to the digest the caller pinned and
+/// return a clear error on mismatch.
+fn verify_digest(image_ref: &str, expected: &str, got: &str) -> Result<()> {
+    if expected == got {
+        Ok(())
+    } else {
+        Err(BvError::RuntimeError(format!(
+            "image digest mismatch for '{image_ref}': expected {expected} but registry returned {got}"
+        )))
+    }
+}
+
 /// Map docker pull stderr to a user-friendly `BvError`.
 fn classify_pull_error(stderr: &str, image_ref: &str) -> BvError {
     if stderr.contains("Cannot connect to the Docker daemon")
@@ -298,5 +361,32 @@ fn classify_pull_error(stderr: &str, image_ref: &str) -> BvError {
         ))
     } else {
         BvError::RuntimeError(format!("docker pull failed:\n{stderr}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verify_digest_matches() {
+        assert!(verify_digest("ncbi/blast", "sha256:abc", "sha256:abc").is_ok());
+    }
+
+    #[test]
+    fn verify_digest_rejects_mismatch() {
+        let err = verify_digest("ncbi/blast", "sha256:abc", "sha256:def").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("ncbi/blast"));
+        assert!(msg.contains("sha256:abc"));
+        assert!(msg.contains("sha256:def"));
+        assert!(msg.contains("mismatch"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn current_uid_gid_returns_some_on_unix() {
+        let got = current_uid_gid();
+        assert!(got.is_some());
     }
 }
