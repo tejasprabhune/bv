@@ -1,8 +1,10 @@
 use std::fmt;
+use std::path::Path;
 use std::process::Command;
 
 use sysinfo::{Disks, System};
 
+use crate::cache::CacheLayout;
 use crate::manifest::CudaVersion;
 
 // Detected hardware
@@ -32,15 +34,12 @@ impl DetectedHardware {
         let cpu_cores = sys.cpus().len() as u32;
         let ram_mb = sys.total_memory() / (1024 * 1024);
 
-        let disk_free_mb = {
-            let disks = Disks::new_with_refreshed_list();
-            // Use the disk with the most free space as a conservative proxy.
-            disks
-                .iter()
-                .map(|d| d.available_space() / (1024 * 1024))
-                .max()
-                .unwrap_or(0)
-        };
+        // Disk free is reported for the disk that backs the bv cache root,
+        // since that's where pulled images / fetched datasets actually land.
+        // Using `max(available_space)` across all mounted disks (the previous
+        // behaviour) gave false-positives on multi-volume systems where the
+        // cache disk was small but a large external drive existed.
+        let disk_free_mb = disk_free_for(&CacheLayout::new().root().clone());
 
         let gpus = detect_gpus();
 
@@ -188,4 +187,49 @@ fn detect_cuda_version() -> Option<CudaVersion> {
         }
     }
     None
+}
+
+/// Return free space (MiB) on the filesystem hosting `target`. Picks the
+/// mounted disk whose mount-point is the longest prefix of `target`'s
+/// canonical path. Falls back to the largest disk if `target` can't be
+/// resolved (e.g. directory doesn't exist yet).
+fn disk_free_for(target: &Path) -> u64 {
+    let disks = Disks::new_with_refreshed_list();
+    if disks.is_empty() {
+        return 0;
+    }
+
+    // Resolve target's canonical path so symlinks / relative paths don't
+    // throw off the longest-prefix match. Walk up to the nearest existing
+    // ancestor — the cache root may not exist on first run.
+    let canonical = ancestor_canonical(target);
+
+    let pick = canonical
+        .as_ref()
+        .and_then(|t| {
+            disks
+                .iter()
+                .filter(|d| t.starts_with(d.mount_point()))
+                .max_by_key(|d| d.mount_point().as_os_str().len())
+        });
+
+    let bytes = match pick {
+        Some(d) => d.available_space(),
+        None => disks
+            .iter()
+            .map(|d| d.available_space())
+            .max()
+            .unwrap_or(0),
+    };
+    bytes / (1024 * 1024)
+}
+
+fn ancestor_canonical(path: &Path) -> Option<std::path::PathBuf> {
+    let mut p = path;
+    loop {
+        if let Ok(c) = p.canonicalize() {
+            return Some(c);
+        }
+        p = p.parent()?;
+    }
 }

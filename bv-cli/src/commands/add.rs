@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write as _;
 
@@ -49,10 +49,10 @@ pub async fn run(
             },
             registry: None,
             tools: vec![],
-            data: HashMap::new(),
+            data: BTreeMap::new(),
             hardware: Default::default(),
             runtime: Default::default(),
-            binary_overrides: HashMap::new(),
+            binary_overrides: BTreeMap::new(),
             caches: Vec::new(),
         }
     };

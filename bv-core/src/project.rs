@@ -1,6 +1,7 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -81,16 +82,16 @@ pub struct BvToml {
     pub registry: Option<RegistryConfig>,
     #[serde(default)]
     pub tools: Vec<ToolDeclaration>,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub data: HashMap<String, DataDeclaration>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub data: BTreeMap<String, DataDeclaration>,
     #[serde(default, skip_serializing_if = "hardware_profile_is_default")]
     pub hardware: HardwareProfile,
     #[serde(default, skip_serializing_if = "runtime_config_is_default")]
     pub runtime: RuntimeConfig,
     /// Resolves collisions when two tools expose the same binary name.
     /// Maps binary name to the tool id that should own the shim.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub binary_overrides: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub binary_overrides: BTreeMap<String, String>,
     /// User-declared cache mounts, applied to every `bv run` invocation
     /// whose tool id matches `match`. Persists scratch state (model weights,
     /// downloaded indices) across runs. User entries override the host_path
@@ -136,15 +137,29 @@ impl BvLock {
 fn atomic_write(path: &Path, content: &str) -> Result<()> {
     let parent = path.parent().unwrap_or(Path::new("."));
     let tmp = tmp_path(parent);
-    fs::write(&tmp, content)?;
-    fs::rename(&tmp, path)?;
+    fs::write(&tmp, content).map_err(|e| {
+        // Best-effort cleanup of the staging file before bubbling up.
+        let _ = fs::remove_file(&tmp);
+        e
+    })?;
+    fs::rename(&tmp, path).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        e
+    })?;
     Ok(())
 }
 
+/// Build a tmp filename unique across processes and concurrent invocations
+/// in the same process. PID disambiguates between processes; an in-process
+/// counter handles fast successive writes; nanoseconds give entropy across
+/// quick reruns by separate `bv` processes that happen to share a PID slot.
 fn tmp_path(dir: &Path) -> PathBuf {
-    let id = std::time::SystemTime::now()
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
+        .map(|d| d.subsec_nanos() as u64)
         .unwrap_or(0);
-    dir.join(format!(".bv-tmp-{id}"))
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    dir.join(format!(".bv-tmp-{pid}-{nanos:09}-{seq}"))
 }

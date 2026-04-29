@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{BvError, Result};
 
-pub type BinaryIndex = HashMap<String, String>;
+pub type BinaryIndex = BTreeMap<String, String>;
 
 /// Per-dataset pin stored inside a lockfile entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,6 +21,7 @@ pub struct ReferenceDataPin {
 /// `tool_id`, `version`, `image_digest`, `manifest_sha256`.
 /// Timestamps and sizes are informational only.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LockfileEntry {
     pub tool_id: String,
     /// Version requirement as declared in `bv.toml` (e.g. `=2.14.0`, `^2`, or `*`).
@@ -38,7 +39,7 @@ pub struct LockfileEntry {
     pub image_size_bytes: Option<u64>,
     pub resolved_at: DateTime<Utc>,
     #[serde(default)]
-    pub reference_data_pins: HashMap<String, ReferenceDataPin>,
+    pub reference_data_pins: BTreeMap<String, ReferenceDataPin>,
     /// Binary names this tool contributes to the binary index.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub binaries: Vec<String>,
@@ -81,16 +82,17 @@ impl Default for LockfileMetadata {
 /// Format is stable: `bv lock --check` fails if the generated lockfile
 /// would differ from the on-disk one on any stability field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Lockfile {
     /// Schema version; currently always `1`.
     pub version: u32,
     #[serde(default)]
     pub metadata: LockfileMetadata,
     #[serde(default)]
-    pub tools: HashMap<String, LockfileEntry>,
+    pub tools: BTreeMap<String, LockfileEntry>,
     /// Derived routing table: binary name -> tool id.
     /// Rebuilt by `rebuild_binary_index` whenever tools change.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub binary_index: BinaryIndex,
 }
 
@@ -99,8 +101,8 @@ impl Lockfile {
         Self {
             version: 1,
             metadata: LockfileMetadata::default(),
-            tools: HashMap::new(),
-            binary_index: HashMap::new(),
+            tools: BTreeMap::new(),
+            binary_index: BTreeMap::new(),
         }
     }
 
@@ -118,9 +120,9 @@ impl Lockfile {
     /// expose the same name. Without an override, a collision returns `Err`.
     pub fn rebuild_binary_index(
         &mut self,
-        overrides: &HashMap<String, String>,
+        overrides: &BTreeMap<String, String>,
     ) -> std::result::Result<(), String> {
-        let mut index: BinaryIndex = HashMap::new();
+        let mut index: BinaryIndex = BTreeMap::new();
         let mut collisions: Vec<String> = Vec::new();
 
         let mut sorted: Vec<_> = self.tools.iter().collect();
@@ -171,5 +173,53 @@ impl Lockfile {
 impl Default for Lockfile {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(id: &str, version: &str, digest: &str) -> LockfileEntry {
+        LockfileEntry {
+            tool_id: id.to_string(),
+            declared_version_req: String::new(),
+            version: version.to_string(),
+            image_reference: format!("registry/{id}:{version}"),
+            image_digest: digest.to_string(),
+            manifest_sha256: format!("sha256:m-{id}"),
+            image_size_bytes: None,
+            resolved_at: chrono::DateTime::<chrono::Utc>::from_timestamp(1700000000, 0).unwrap(),
+            reference_data_pins: BTreeMap::new(),
+            binaries: vec![format!("{id}-bin")],
+        }
+    }
+
+    /// Regression: lockfile serialization must be byte-deterministic so
+    /// `bv lock --check` can compare against the on-disk file. HashMap
+    /// iteration order is randomized; BTreeMap is stable.
+    #[test]
+    fn to_toml_string_is_deterministic() {
+        let mut lock = Lockfile::new();
+        for id in ["zebra", "alpha", "mango", "beta", "tango"] {
+            lock.tools.insert(
+                id.to_string(),
+                entry(id, "1.0.0", &format!("sha256:d-{id}")),
+            );
+            lock.binary_index
+                .insert(format!("{id}-bin"), id.to_string());
+        }
+
+        let s1 = lock.to_toml_string().unwrap();
+        for _ in 0..32 {
+            assert_eq!(s1, lock.to_toml_string().unwrap(), "non-deterministic output");
+        }
+        // Tools must appear in lexicographic order.
+        let alpha = s1.find("\"alpha\"").unwrap();
+        let beta = s1.find("\"beta\"").unwrap();
+        let mango = s1.find("\"mango\"").unwrap();
+        let tango = s1.find("\"tango\"").unwrap();
+        let zebra = s1.find("\"zebra\"").unwrap();
+        assert!(alpha < beta && beta < mango && mango < tango && tango < zebra);
     }
 }

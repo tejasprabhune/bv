@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -96,8 +96,8 @@ pub async fn generate_lockfile(
             generated_at: Utc::now(),
             hardware_summary,
         },
-        tools: HashMap::new(),
-        binary_index: HashMap::new(),
+        tools: BTreeMap::new(),
+        binary_index: BTreeMap::new(),
     };
 
     let sem = Arc::new(tokio::sync::Semaphore::new(3));
@@ -215,7 +215,7 @@ pub fn pull_and_make_entry(
         manifest_sha256: resolved.manifest_sha256.clone(),
         image_size_bytes: size_bytes,
         resolved_at: Utc::now(),
-        reference_data_pins: HashMap::new(),
+        reference_data_pins: BTreeMap::new(),
         binaries,
     })
 }

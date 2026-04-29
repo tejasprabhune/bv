@@ -128,7 +128,11 @@ impl HardwareSpec {
             } else {
                 if let Some(min_vram) = gpu_req.min_vram_gb {
                     let best_vram_mb = detected.gpus.iter().map(|g| g.vram_mb).max().unwrap_or(0);
-                    let best_vram_gb = (best_vram_mb as f64 / 1024.0).floor() as u32;
+                    // Round to nearest GiB instead of floor: nvidia-smi
+                    // typically reports just-under marketing capacity (e.g.
+                    // 24268 MiB on a "24 GB" RTX 3090). flooring made
+                    // min_vram_gb=24 spuriously fail on real hardware.
+                    let best_vram_gb = ((best_vram_mb as f64) / 1024.0).round() as u32;
                     if best_vram_gb < min_vram {
                         out.push(HardwareMismatch::InsufficientVram {
                             required_gb: min_vram,
@@ -382,6 +386,16 @@ impl Manifest {
     pub fn from_toml_str(s: &str) -> Result<Self> {
         let m: Manifest = toml::from_str(s).map_err(|e| BvError::ManifestParse(e.to_string()))?;
         m.validate_types()?;
+        if let Err(errs) = m.validate() {
+            let combined = errs
+                .iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(BvError::ManifestParse(format!(
+                "manifest validation failed: {combined}"
+            )));
+        }
         Ok(m)
     }
 
@@ -759,11 +773,12 @@ reference = "example/broken:1.0.0"
 
 [tool.hardware]
 "#;
-        let m = Manifest::from_toml_str(s).unwrap();
-        let errs = m.validate().unwrap_err();
+        // from_toml_str now runs validate(); manifest with neither entrypoint
+        // nor subcommands must be rejected at parse time.
+        let err = Manifest::from_toml_str(s).unwrap_err();
         assert!(
-            errs.iter().any(|e| e.field == "tool.entrypoint"),
-            "expected entrypoint-or-subcommands error, got: {errs:?}"
+            err.to_string().contains("tool.entrypoint"),
+            "expected entrypoint-or-subcommands error, got: {err}"
         );
     }
 
@@ -783,9 +798,8 @@ reference = "example/t:1.0.0"
 [tool.subcommands]
 "-bad" = ["python", "x.py"]
 "#;
-        let m = Manifest::from_toml_str(s).unwrap();
-        let errs = m.validate().unwrap_err();
-        assert!(errs.iter().any(|e| e.field.contains("-bad")));
+        let err = Manifest::from_toml_str(s).unwrap_err();
+        assert!(err.to_string().contains("-bad"), "got: {err}");
     }
 
     #[test]
