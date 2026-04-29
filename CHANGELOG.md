@@ -2,6 +2,51 @@
 
 All notable changes to `bv` are documented here. Follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.15] - 2026-04-29
+
+### Fixed (correctness / data integrity)
+
+- **Lockfile and bv.toml are now byte-deterministic.** The 0.1.13 BTreeMap fix only covered `Manifest`; `Lockfile.tools`, `Lockfile.binary_index`, `LockfileEntry.reference_data_pins`, `BvToml.data`, and `BvToml.binary_overrides` were still `HashMap`. They reordered between `bv lock` and `bv sync`, polluted `git diff`, and caused spurious `bv lock --check` failures in CI. All five are now `BTreeMap`. Regression test re-serializes 32× and asserts identical bytes plus lexicographic key order.
+- **`bv data fetch` is now atomic.** Files download into a per-fetch staging dir under `cache.tmp_dir()`; `final_dir` is only created via a single `fs::rename` after all downloads succeed and verify. RAII guard removes the staging dir on any error. A killed fetch can no longer leave a partial cache that the next invocation reports as "already cached." Resume-from-partial support has been removed (its sha256 contract was broken — the hasher only saw newly-downloaded bytes against the full-file expected digest).
+- **`bv sync` no longer silently swallows drift errors.** Failures from the drift-check path now surface as a yellow `warning:` line with the underlying error and a hint to run `bv lock`; sync still proceeds.
+- **`bv sync` now respects `[registry]` in `bv.toml`** for the drift-check pass. Private-registry projects were silently drift-checking against the public default.
+- **Apptainer SIF cache hits are re-verified.** `pull` previously returned the requested digest with no check when `<sif_dir>/<digest>.sif` existed. It now re-hashes the file and falls through to a fresh pull on mismatch. `file_sha256` streams 64 KiB chunks via `BufReader` instead of reading the whole multi-GB SIF into memory.
+- **Apptainer no longer leaks host environment.** `apptainer run` is invoked with `--cleanenv --no-home`; manifest-declared env still passes through `--env`.
+- **Containers run as the calling user under Docker.** `--user $(id):$(gid)` is set so files written into host-mounted dirs aren't root-owned. Apptainer already runs as the calling user.
+- **`bv-index/git.rs` warns when dropping non-semver versions.** Both `list_versions` and `list_data_versions` now log a `tracing::warn!` listing dropped filenames and the semver-compat hint, instead of silently filtering them.
+- **`Manifest::from_toml_str` now runs full `validate()`.** Library callers no longer bypass structural validation. `Lockfile` and `LockfileEntry` use `serde(deny_unknown_fields)` to catch typos.
+
+### Fixed (UX)
+
+- **`bv add tool@2` now means `^2`** (caret), matching Cargo. Previously it was exact `=2.0.0`. Bare digits-and-dots versions are treated as caret; explicit operators (`=`, `~`, `^`, `*`, `>=`) are preserved.
+- **`bv sync` pulls in parallel** (cap 3), matching `bv add`. Previously sequential — 50 tools took 50× the time of `bv add`.
+- **`bv lock --check` refreshes the registry index** (TTL-based), so CI no longer misses new versions.
+- **`bv search` shows deprecated tools when `--tier all` is passed.** Previously they were silently filtered out regardless of tier.
+- **Conformance probes now propagate `entrypoint.env`** from the manifest, eliminating false negatives for tools that depend on `PATH`/`LD_LIBRARY_PATH` set via env.
+- **`bv run` keeps the OCI tag** on digest-pinned references, matching `bv sync`. Apptainer's tag-context SIF lookup needs both paths to agree.
+- **VRAM check rounds to nearest GiB** instead of flooring. Cards reporting 24268 MiB no longer fail a `min_vram_gb = 24` requirement.
+- **Disk-free check picks the disk backing the bv cache root.** Previously used `max(available_space)` across all mounted disks, giving false-positives on multi-volume systems.
+- **`bv doctor` shows a spinner while computing cache size**; image count math fixed (was counting every top-level cache subdir as an image).
+- **`bv-cli show.rs::find_latest_version_in_dir` uses semver order**, not lexicographic. (`2.10.1` > `2.9.0`.)
+- **Conformance walker uses TTL-based refresh**, matching `bv add`/`sync`/`search`. No more network round-trip on every invocation.
+
+### Fixed (publish flow)
+
+- **Subcommand script-path rewriter is stricter.** `--config=cfg/x.yaml`, `s3://bucket/key`, env-style `KEY=val/x`, dash-prefixed flags, and URLs are no longer mangled into `/app/...`. Only relative tokens that look like script files (extension match or dir/file pattern) are rewritten.
+- **`bv publish` accepts commit SHAs.** SHA-shaped refs (7–40 hex chars) use `git fetch origin <sha>` instead of the broken `--branch <sha>`.
+- **Auto-generated Python Dockerfiles include `build-essential`, `libssl-dev`, `libffi-dev`, `pkg-config`** on `python:3.11-slim-bookworm`. numpy-from-source, lxml, openssl crates no longer fail at build.
+- **`bv publish` PR rerun works.** A second publish for the same `tool@version` now updates the existing file (via the contents API's `sha` field) instead of 422-ing. Branch-collision detection uses the proper status code + body parse instead of substring matching.
+
+### Fixed (parsing)
+
+- **`OciRef::from_str` correctly handles port-qualified registries.** `localhost:5000/foo/bar`, `localhost:5000/foo/bar:1.0`, and bare `foo:1.0` all parse correctly.
+- **`atomic_write`** uses `pid + nanos + in-process counter` for tmp filenames; concurrent `bv lock` invocations no longer race on the same staging file. Cleans up on rename failure.
+
+### Internal
+
+- `bv-runtime` exposes `DockerRuntime::pull_verified` (pull + digest-compare). Trait-level wiring for `bv run`/`bv conform` is deferred to a follow-up.
+- `bv remove` documents its bv.toml-then-lock write order as a deliberate choice — if the second write fails, `bv lock` regenerates from the (correct) bv.toml, rather than the reverse.
+
 ## [0.1.14] - 2026-04-29
 
 ### Changed

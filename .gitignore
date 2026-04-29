@@ -4,3 +4,4 @@ Cargo.lock
 *.lock.bak
 ~/.cache/bv/
 .DS_Store
+.claude/
