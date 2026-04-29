@@ -42,15 +42,27 @@ pub enum Commands {
     },
 
     /// Verify a tool manifest against the conformance test suite.
+    ///
+    /// With no tool argument, walks every tool in the registry and prints a
+    /// summary table. Useful as a one-shot registry health check.
     Conformance {
-        /// Tool identifier.
-        tool: String,
+        /// Tool identifier. Omit to walk the entire registry.
+        tool: Option<String>,
         /// Registry URL or local path. Overrides BV_REGISTRY env var.
         #[arg(long, env = "BV_REGISTRY")]
         registry: Option<String>,
         /// Container backend: `docker`, `apptainer`, or `auto`.
         #[arg(long, env = "BV_BACKEND")]
         backend: Option<String>,
+        /// In walk mode: only run tools whose id contains this substring.
+        #[arg(long)]
+        filter: Option<String>,
+        /// In walk mode: skip tools that require a GPU.
+        #[arg(long)]
+        skip_gpu: bool,
+        /// In walk mode: skip tools that require reference data.
+        #[arg(long)]
+        skip_reference_data: bool,
     },
 
     /// Search the registry for tools.

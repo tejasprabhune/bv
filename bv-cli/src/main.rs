@@ -50,7 +50,22 @@ async fn main() -> anyhow::Result<()> {
             tool,
             registry,
             backend,
-        } => commands::conform::run(tool, registry.as_deref(), backend.as_deref()).await,
+            filter,
+            skip_gpu,
+            skip_reference_data,
+        } => match tool {
+            Some(t) => commands::conform::run(t, registry.as_deref(), backend.as_deref()).await,
+            None => {
+                commands::conform::run_all(
+                    registry.as_deref(),
+                    backend.as_deref(),
+                    filter.as_deref(),
+                    *skip_gpu,
+                    *skip_reference_data,
+                )
+                .await
+            }
+        },
         Commands::Search {
             query,
             tier,
