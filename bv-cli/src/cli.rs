@@ -250,6 +250,25 @@ pub enum DataCommands {
     },
     /// List reference datasets present in the local cache.
     List,
+    /// Walk the registry and HEAD-check every dataset's source URLs.
+    ///
+    /// Reports declared vs actual size, plus a PASS/FAIL/MISMATCH per dataset.
+    /// Cheap (no downloads); use as a registry health check before fetching.
+    Verify {
+        /// Registry URL or local path. Overrides BV_REGISTRY env var.
+        #[arg(long, env = "BV_REGISTRY")]
+        registry: Option<String>,
+        /// Only verify datasets whose id contains this substring.
+        #[arg(long)]
+        filter: Option<String>,
+        /// Number of HEAD requests to issue concurrently.
+        #[arg(long, default_value = "8")]
+        jobs: usize,
+        /// Treat declared sizes that disagree with Content-Length by more
+        /// than this fraction as MISMATCH. Default 0.20 (20%).
+        #[arg(long, default_value = "0.20")]
+        size_tolerance: f64,
+    },
 }
 
 #[derive(Subcommand)]

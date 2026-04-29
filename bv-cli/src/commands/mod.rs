@@ -22,6 +22,20 @@ pub async fn data_cmd(cmd: &DataCommands) -> anyhow::Result<()> {
             yes,
         } => data::fetch(datasets, registry.as_deref(), *yes).await,
         DataCommands::List => data::list(),
+        DataCommands::Verify {
+            registry,
+            filter,
+            jobs,
+            size_tolerance,
+        } => {
+            data::verify(
+                registry.as_deref(),
+                filter.as_deref(),
+                *jobs,
+                *size_tolerance,
+            )
+            .await
+        }
     }
 }
 

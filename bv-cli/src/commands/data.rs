@@ -73,7 +73,10 @@ async fn fetch_one(
 
     // Size confirmation
     if !yes {
-        let size_str = format_size(manifest.data.size_bytes);
+        let size_str = match manifest.data.size_bytes {
+            Some(b) => format_size(b),
+            None => "unknown size".to_string(),
+        };
         eprint!("  {id}@{ver} is {size_str}. Continue? [y/N] ");
         std::io::stderr().flush()?;
         let mut line = String::new();
@@ -109,10 +112,10 @@ async fn fetch_one(
             .unwrap_or("download");
         let tmp_path = tmp_dir.join(format!("{id}-{ver}-{filename}"));
 
-        // The primary file's sha256 is enforced; sidecars (e.g. a `.tbi`
-        // alongside a `.vcf.gz`) are downloaded without integrity checking.
+        // The primary file's sha256 is enforced when declared; sidecars
+        // (e.g. a `.tbi` alongside a `.vcf.gz`) are never integrity-checked.
         let expected_sha = if i == 0 {
-            Some(manifest.data.sha256.as_str())
+            manifest.data.sha256.as_deref()
         } else {
             None
         };
@@ -159,7 +162,7 @@ async fn download_verified(
     url: &str,
     dest: &Path,
     expected_sha256: Option<&str>,
-    size_hint: u64,
+    size_hint: Option<u64>,
 ) -> anyhow::Result<()> {
     let client = reqwest::Client::new();
 
@@ -196,7 +199,7 @@ async fn download_verified(
         anyhow::bail!("HTTP {} for {url}", response.status());
     }
 
-    let total = response.content_length().unwrap_or(size_hint);
+    let total = response.content_length().or(size_hint).unwrap_or(0);
     let bar = ProgressBar::new(total);
     bar.set_style(
         ProgressStyle::with_template("  {bar:40.cyan/blue} {bytes}/{total_bytes}  {eta}")
@@ -330,6 +333,252 @@ pub fn list() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// HEAD-check every dataset in the registry. Compares the manifest's
+/// declared `size_bytes` (and primary URL reachability) to what the server
+/// reports right now. Fast: no downloads.
+pub async fn verify(
+    registry_flag: Option<&str>,
+    filter: Option<&str>,
+    jobs: usize,
+    size_tolerance: f64,
+) -> anyhow::Result<()> {
+    use std::sync::Arc;
+
+    use futures_util::stream::{FuturesUnordered, StreamExt};
+    use tokio::sync::Semaphore;
+
+    let cwd = std::env::current_dir()?;
+    let bv_toml = bv_core::project::BvToml::from_path(&cwd.join("bv.toml")).ok();
+    let registry_url = crate::registry::resolve_registry_url(registry_flag, bv_toml.as_ref());
+    let cache = CacheLayout::new();
+    let index = crate::registry::open_index(&registry_url, &cache);
+
+    index.refresh().context("registry refresh failed")?;
+
+    let mut datasets = index.list_datasets()?;
+    if let Some(f) = filter {
+        datasets.retain(|d| d.contains(f));
+    }
+    let jobs = jobs.max(1);
+
+    eprintln!(
+        "  {} {} dataset(s) from {}  (jobs: {})\n",
+        "Data verify:".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string()),
+        datasets.len(),
+        registry_url,
+        jobs,
+    );
+
+    // Collect (id, version, urls, declared_size, declared_sha) up front. The
+    // index access is sync; doing it here keeps the concurrent loop pure
+    // network I/O.
+    struct Job {
+        id: String,
+        version: String,
+        primary_url: String,
+        declared_size: Option<u64>,
+        declared_sha: Option<String>,
+    }
+    let mut jobs_vec: Vec<Job> = Vec::with_capacity(datasets.len());
+    for id in &datasets {
+        match index.get_data_manifest(id, None) {
+            Ok(m) => {
+                let primary = m.data.source_urls.first().cloned().unwrap_or_default();
+                jobs_vec.push(Job {
+                    id: id.clone(),
+                    version: m.data.version,
+                    primary_url: primary,
+                    declared_size: m.data.size_bytes,
+                    declared_sha: m.data.sha256,
+                });
+            }
+            Err(e) => {
+                eprintln!("  ERR   {id}: manifest load: {e}");
+            }
+        }
+    }
+
+    enum Verdict {
+        Ok { actual_size: Option<u64> },
+        Mismatch { declared: u64, actual: u64 },
+        BrokenUrl { status: String },
+        NoUrl,
+    }
+
+    let client = Arc::new(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .context("failed to build http client")?,
+    );
+    let sem = Arc::new(Semaphore::new(jobs));
+    let mut tasks: FuturesUnordered<tokio::task::JoinHandle<(Job, Verdict)>> =
+        FuturesUnordered::new();
+
+    for job in jobs_vec {
+        let sem = sem.clone();
+        let client = client.clone();
+        tasks.push(tokio::spawn(async move {
+            let _permit = match sem.acquire_owned().await {
+                Ok(p) => p,
+                Err(_) => {
+                    return (
+                        job,
+                        Verdict::BrokenUrl {
+                            status: "semaphore closed".into(),
+                        },
+                    );
+                }
+            };
+            if job.primary_url.is_empty() {
+                return (job, Verdict::NoUrl);
+            }
+            // Many FTP/CDN servers reject HEAD; fall back to a Range:0-0 GET
+            // which costs the same one round trip and always returns headers.
+            let resp = client
+                .get(&job.primary_url)
+                .header("Range", "bytes=0-0")
+                .send()
+                .await;
+            let verdict = match resp {
+                Ok(r) if r.status().is_success() => {
+                    let actual = parse_total_size(&r);
+                    if let (Some(declared), Some(actual)) = (job.declared_size, actual) {
+                        let ratio = (declared as f64 - actual as f64).abs() / actual.max(1) as f64;
+                        if ratio > size_tolerance {
+                            Verdict::Mismatch { declared, actual }
+                        } else {
+                            Verdict::Ok {
+                                actual_size: Some(actual),
+                            }
+                        }
+                    } else {
+                        Verdict::Ok {
+                            actual_size: actual,
+                        }
+                    }
+                }
+                Ok(r) => Verdict::BrokenUrl {
+                    status: format!("HTTP {}", r.status()),
+                },
+                Err(e) => Verdict::BrokenUrl {
+                    status: e.to_string(),
+                },
+            };
+            (job, verdict)
+        }));
+    }
+
+    let mut results: Vec<(Job, Verdict)> = Vec::new();
+    while let Some(joined) = tasks.next().await {
+        match joined {
+            Ok(t) => results.push(t),
+            Err(e) => eprintln!("  task join error: {e}"),
+        }
+    }
+    results.sort_by(|a, b| a.0.id.cmp(&b.0.id));
+
+    let mut ok = 0;
+    let mut mismatch = 0;
+    let mut broken = 0;
+    let mut no_url = 0;
+
+    eprintln!(
+        "  {}",
+        "── Summary ──".if_supports_color(Stream::Stderr, |t| t.bold().to_string())
+    );
+    let id_w = results.iter().map(|(j, _)| j.id.len()).max().unwrap_or(7);
+    let ver_w = results
+        .iter()
+        .map(|(j, _)| j.version.len())
+        .max()
+        .unwrap_or(7);
+
+    for (job, verdict) in &results {
+        let (label, detail) = match verdict {
+            Verdict::Ok { actual_size } => {
+                ok += 1;
+                let label = "OK  "
+                    .if_supports_color(Stream::Stderr, |t| t.green().bold().to_string())
+                    .to_string();
+                let actual = actual_size
+                    .map(format_size)
+                    .unwrap_or_else(|| "(no size header)".to_string());
+                let sha = if job.declared_sha.is_some() {
+                    " [sha256 declared, not verified]"
+                } else {
+                    ""
+                };
+                (label, format!("actual={actual}{sha}"))
+            }
+            Verdict::Mismatch { declared, actual } => {
+                mismatch += 1;
+                let label = "DIFF"
+                    .if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string())
+                    .to_string();
+                (
+                    label,
+                    format!(
+                        "declared={}  actual={}",
+                        format_size(*declared),
+                        format_size(*actual)
+                    ),
+                )
+            }
+            Verdict::BrokenUrl { status } => {
+                broken += 1;
+                let label = "FAIL"
+                    .if_supports_color(Stream::Stderr, |t| t.red().bold().to_string())
+                    .to_string();
+                (label, status.clone())
+            }
+            Verdict::NoUrl => {
+                no_url += 1;
+                let label = "FAIL"
+                    .if_supports_color(Stream::Stderr, |t| t.red().bold().to_string())
+                    .to_string();
+                (label, "no source_urls".into())
+            }
+        };
+        eprintln!(
+            "  {}  {:<id_w$}  {:<ver_w$}  {}",
+            label,
+            job.id,
+            job.version,
+            detail,
+            id_w = id_w,
+            ver_w = ver_w,
+        );
+    }
+    eprintln!(
+        "\n  {} ok: {ok}  diff: {mismatch}  fail: {}  ({} dataset(s))",
+        "Totals:".if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
+        broken + no_url,
+        results.len(),
+    );
+
+    if broken > 0 || no_url > 0 {
+        anyhow::bail!("one or more datasets have unreachable URLs");
+    }
+    Ok(())
+}
+
+/// Extract total file size from a Range:0-0 response. Servers that honor
+/// Range return 206 with Content-Range like `bytes 0-0/123456`; servers that
+/// ignore Range return 200 with regular Content-Length.
+fn parse_total_size(resp: &reqwest::Response) -> Option<u64> {
+    if let Some(cr) = resp
+        .headers()
+        .get(reqwest::header::CONTENT_RANGE)
+        .and_then(|v| v.to_str().ok())
+        && let Some(total) = cr.rsplit('/').next()
+        && let Ok(n) = total.parse::<u64>()
+    {
+        return Some(n);
+    }
+    resp.content_length()
 }
 
 fn dir_size_bytes(path: &Path) -> u64 {

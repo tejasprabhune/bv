@@ -35,4 +35,7 @@ pub trait IndexBackend {
 
     /// List all available version strings for a dataset (lexicographically sorted).
     fn list_data_versions(&self, dataset: &str) -> Result<Vec<String>>;
+
+    /// List all dataset ids in this index.
+    fn list_datasets(&self) -> Result<Vec<String>>;
 }

@@ -292,4 +292,23 @@ impl IndexBackend for GitIndex {
         versions.sort();
         Ok(versions)
     }
+
+    fn list_datasets(&self) -> Result<Vec<String>> {
+        let data_dir = self.local_path.join("data");
+        if !data_dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut ids = Vec::new();
+        for entry in fs::read_dir(&data_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir()
+                && let Some(name) = path.file_name().and_then(|s| s.to_str())
+            {
+                ids.push(name.to_string());
+            }
+        }
+        ids.sort();
+        Ok(ids)
+    }
 }

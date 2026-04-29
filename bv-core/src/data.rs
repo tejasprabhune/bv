@@ -18,8 +18,16 @@ pub struct DataEntry {
     pub description: Option<String>,
     pub source_urls: Vec<String>,
     /// Expected SHA-256 of the primary downloaded file as `sha256:<hex>`.
-    pub sha256: String,
-    pub size_bytes: u64,
+    /// Optional: omit when the upstream file is mutable (e.g. NCBI
+    /// "current_release" pointers) or when no one has computed a real hash
+    /// yet. When set, `bv data fetch` enforces it strictly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+    /// Approximate compressed size in bytes. Optional. Used as a hint for
+    /// the progress bar when the server doesn't report Content-Length;
+    /// otherwise the server's value wins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
     /// File format hint, e.g. `"tar"`, `"fasta_gz"`, `"raw"`.
     pub format: String,
     #[serde(default)]
