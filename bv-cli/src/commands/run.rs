@@ -86,22 +86,51 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
     image.tag = None;
     image.digest = Some(entry.image_digest.clone());
 
-    // Decide command. Three cases:
+    // Decide command. Cases (in order):
     //   * binary alias  (`bv run blastn -query x`)   -> [binary, ...args]
-    //   * tool id, no args (`bv run bcftools`)       -> [entrypoint.command]
-    //   * tool id, with args (`bv run bcftools view ...`)
-    //                                                 -> [entrypoint.command, ...args]
-    // The third case is what shims hit: the shim invokes
-    // `bv run <toolname> "$@"`, so when "$@" is non-empty we still want the
-    // tool's entrypoint binary in front, not just the user's args.
+    //   * tool id + matching subcommand
+    //         (`bv run genie2 train --devices 1`)    -> subcommands[name] + ...rest
+    //   * tool id, no args, no entrypoint            -> print available subcommands
+    //   * tool id, no args, with entrypoint          -> [entrypoint.command]
+    //   * tool id, with args, with entrypoint
+    //         (`bv run bcftools view ...`)           -> [entrypoint.command, ...args]
+    //   * tool id, with args, subcommands declared but no match
+    //         -> friendly error listing subcommands
     let command = if let Some(bin) = binary_override {
         let mut cmd = vec![bin];
         cmd.extend_from_slice(args);
         cmd
-    } else if args.is_empty() {
-        vec![manifest.tool.entrypoint.command.clone()]
+    } else if let Some(first) = args.first()
+        && let Some(subcmd) = manifest.tool.subcommands.get(first)
+    {
+        let mut cmd = subcmd.clone();
+        cmd.extend_from_slice(&args[1..]);
+        cmd
+    } else if !manifest.tool.subcommands.is_empty() && manifest.tool.entrypoint.is_none() {
+        if args.is_empty() {
+            print_subcommands(&tool_id, &manifest);
+            return Ok(());
+        }
+        let mut names: Vec<&String> = manifest.tool.subcommands.keys().collect();
+        names.sort();
+        let list = names
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        anyhow::bail!(
+            "'{tool_id}' has no subcommand '{}'.\n  \
+             Available subcommands: {list}",
+            args[0]
+        );
     } else {
-        let mut cmd = vec![manifest.tool.entrypoint.command.clone()];
+        let ep = manifest.tool.entrypoint.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "'{tool_id}' has no [tool.entrypoint] declared.\n  \
+                 This manifest is malformed; `bv conformance` should reject it."
+            )
+        })?;
+        let mut cmd = vec![ep.command.clone()];
         cmd.extend_from_slice(args);
         cmd
     };
@@ -163,7 +192,12 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
     let spec = RunSpec {
         image,
         command,
-        env: manifest.tool.entrypoint.env.clone(),
+        env: manifest
+            .tool
+            .entrypoint
+            .as_ref()
+            .map(|e| e.env.clone())
+            .unwrap_or_default(),
         mounts,
         gpu: GpuProfile {
             spec: manifest.tool.hardware.gpu.clone(),
@@ -194,6 +228,29 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
     }
 
     Ok(())
+}
+
+fn print_subcommands(tool_id: &str, manifest: &Manifest) {
+    eprintln!(
+        "  {} {}",
+        "Tool".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string()),
+        tool_id
+    );
+    eprintln!(
+        "  {}",
+        "Available subcommands:".if_supports_color(Stream::Stderr, |t| t.bold().to_string())
+    );
+    let mut entries: Vec<(&String, &Vec<String>)> = manifest.tool.subcommands.iter().collect();
+    entries.sort_by_key(|(k, _)| k.as_str());
+    let max_name = entries.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+    for (name, cmd) in &entries {
+        eprintln!("    {:width$}  {}", name, cmd.join(" "), width = max_name);
+    }
+    eprintln!(
+        "\n  Run with: {} {tool_id} {}",
+        "bv run".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
+        "<subcommand> [args...]".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
+    );
 }
 
 pub fn info(tool: &str) -> anyhow::Result<()> {
@@ -235,10 +292,23 @@ pub fn info(tool: &str) -> anyhow::Result<()> {
             if let Some(hp) = &m.tool.homepage {
                 println!("Homepage:  {hp}");
             }
-            let ep = &m.tool.entrypoint;
-            println!("Entrypoint: {}", ep.command);
-            if let Some(tmpl) = &ep.args_template {
-                println!("Args template: {tmpl}");
+            if let Some(ep) = &m.tool.entrypoint {
+                println!("Entrypoint: {}", ep.command);
+                if let Some(tmpl) = &ep.args_template {
+                    println!("Args template: {tmpl}");
+                }
+            }
+            if !m.tool.subcommands.is_empty() {
+                let mut names: Vec<&String> = m.tool.subcommands.keys().collect();
+                names.sort();
+                println!(
+                    "Subcommands: {}",
+                    names
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
             }
         }
     } else {

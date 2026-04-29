@@ -609,6 +609,44 @@ exposed = [
 
 The `[tool.smoke]` block is optional and only needed for unusual binaries. Most manifests omit it.
 
+### Multi-script tools (subcommands)
+
+ML repos typically bundle several entry scripts (`train.py`, `sample.py`, `eval.py`). Declare these as `[tool.subcommands]` instead of cramming them through one `[tool.entrypoint]`:
+
+```toml
+[tool]
+id = "genie2"
+version = "1.0.0"
+
+[tool.image]
+backend = "docker"
+reference = "ghcr.io/aqlaboratory/genie2:1.0.0"
+
+[tool.hardware]
+cpu_cores = 4
+ram_gb = 16.0
+
+[tool.hardware.gpu]
+required = true
+min_vram_gb = 16
+cuda_version = "12.1"
+
+[tool.subcommands]
+train                = ["python", "genie/train.py"]
+sample_unconditional = ["python", "genie/sample_unconditional.py"]
+sample_scaffold      = ["python", "genie/sample_scaffold.py"]
+```
+
+Use:
+
+```sh
+bv run genie2 sample_unconditional --name base --epoch 40 --scale 0.6 --outdir outputs
+bv run genie2 train --devices 1 --num_nodes 1 --config runs/example/configuration
+bv run genie2                                 # no args -> prints subcommand list
+```
+
+Subcommand names stay namespaced under the tool id, so generic names (`train`, `eval`) don't collide across tools. They are not added to PATH and don't appear in `bv list --binaries` (use `[tool.binaries]` for that). A manifest must declare `[tool.entrypoint]`, `[tool.subcommands]`, or both.
+
 The default registry is used automatically. Override with `--registry <url>` or `BV_REGISTRY=<url>` for private registries.
 
 ---

@@ -37,12 +37,10 @@ bv-runtime-apptainer = { version = "0.1.1", path = "../bv-runtime-apptainer" }
 bv-conformance = { version = "0.1.1", path = "../bv-conformance" }
 serde = { version = "1.0.228", features = ["derive"] }
 flate2 = "1.1.9"
+inquire = "0.9.4"
 
 [dev-dependencies]
 insta = "1.47.2"
-
-[dependencies.dialoguer]
-version = "0.11"
 
 [dependencies.keyring]
 version = "3"

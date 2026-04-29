@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
@@ -5,7 +6,7 @@ use bv_core::manifest::{
     EntrypointSpec, GpuSpec, HardwareSpec, ImageSpec, IoSpec, Manifest, Tier, ToolManifest,
 };
 use bv_types::Cardinality;
-use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
+use inquire::{Confirm, CustomType, Select, Text};
 use owo_colors::{OwoColorize, Stream};
 
 use super::source::FetchedSource;
@@ -32,6 +33,10 @@ pub struct PublishMeta {
     pub outputs: Vec<IoMeta>,
     #[serde(default)]
     pub entrypoint: EntrypointMeta,
+    /// Optional subcommand map: name -> argv prefix (space-separated string in
+    /// TOML, e.g. `train = "python genie/train.py"`).
+    #[serde(default)]
+    pub subcommands: HashMap<String, String>,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -72,8 +77,10 @@ pub struct ScaffoldResult {
     pub needs_gpu: bool,
     pub inputs: Vec<IoSpec>,
     pub outputs: Vec<IoSpec>,
+    /// Empty string means "no entrypoint" — only valid when `subcommands` is non-empty.
     pub entrypoint_command: String,
     pub args_template: Option<String>,
+    pub subcommands: HashMap<String, Vec<String>>,
 }
 
 impl ScaffoldResult {
@@ -110,11 +117,16 @@ impl ScaffoldResult {
                 reference_data: Default::default(),
                 inputs: self.inputs.clone(),
                 outputs: self.outputs.clone(),
-                entrypoint: EntrypointSpec {
-                    command: self.entrypoint_command.clone(),
-                    args_template: self.args_template.clone(),
-                    env: Default::default(),
+                entrypoint: if self.entrypoint_command.is_empty() {
+                    None
+                } else {
+                    Some(EntrypointSpec {
+                        command: self.entrypoint_command.clone(),
+                        args_template: self.args_template.clone(),
+                        env: Default::default(),
+                    })
                 },
+                subcommands: self.subcommands.clone(),
                 cache_paths: vec![],
                 binaries: None,
                 smoke: None,
@@ -173,6 +185,15 @@ pub fn from_config(
     let inputs = parse_io_specs(&m.inputs).context("inputs")?;
     let outputs = parse_io_specs(&m.outputs).context("outputs")?;
 
+    let subcommands = parse_subcommand_strings(&m.subcommands)?;
+    let entrypoint_command = m.entrypoint.command.clone().unwrap_or_default();
+    if entrypoint_command.is_empty() && subcommands.is_empty() {
+        anyhow::bail!(
+            "either entrypoint.command or [publish.subcommands] must be set in bv-publish.toml \
+             (or supplied interactively)"
+        );
+    }
+
     Ok(ScaffoldResult {
         name,
         version,
@@ -185,12 +206,204 @@ pub fn from_config(
         needs_gpu: m.hardware.needs_gpu.unwrap_or(false),
         inputs,
         outputs,
-        entrypoint_command: m.entrypoint.command.clone().unwrap_or_default(),
+        entrypoint_command,
         args_template: m.entrypoint.args_template.clone(),
+        subcommands,
     })
 }
 
-/// Interactive path: prompts for all fields, pre-filling from config + hints.
+fn parse_subcommand_strings(
+    raw: &HashMap<String, String>,
+) -> anyhow::Result<HashMap<String, Vec<String>>> {
+    raw.iter()
+        .map(|(k, v)| {
+            let argv: Vec<String> =
+                shell_split(v).with_context(|| format!("subcommand '{k}': bad shell quoting"))?;
+            if argv.is_empty() {
+                anyhow::bail!("subcommand '{k}': command must not be empty");
+            }
+            Ok((k.clone(), argv))
+        })
+        .collect()
+}
+
+/// Tiny POSIX-ish shell split. Handles single/double quotes and backslash
+/// escapes; no env expansion. Sufficient for `python genie/sample.py --foo "bar baz"`.
+fn shell_split(s: &str) -> anyhow::Result<Vec<String>> {
+    let mut out: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut chars = s.chars().peekable();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut has_token = false;
+
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' if !in_double => {
+                in_single = !in_single;
+                has_token = true;
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+                has_token = true;
+            }
+            '\\' if !in_single => {
+                if let Some(next) = chars.next() {
+                    cur.push(next);
+                    has_token = true;
+                }
+            }
+            c if c.is_whitespace() && !in_single && !in_double => {
+                if has_token {
+                    out.push(std::mem::take(&mut cur));
+                    has_token = false;
+                }
+            }
+            c => {
+                cur.push(c);
+                has_token = true;
+            }
+        }
+    }
+    if in_single || in_double {
+        anyhow::bail!("unterminated quote");
+    }
+    if has_token {
+        out.push(cur);
+    }
+    Ok(out)
+}
+
+/// Common SPDX identifiers offered in the License picker. Final entry triggers
+/// a free-form Text prompt; "(none)" leaves the field unset.
+const SPDX_LICENSES: &[&str] = &[
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "GPL-3.0-only",
+    "GPL-2.0-only",
+    "LGPL-3.0-only",
+    "MPL-2.0",
+    "AGPL-3.0-only",
+    "Unlicense",
+    "Proprietary",
+    "(none)",
+    "Custom…",
+];
+
+/// Working state for the review-and-edit interactive flow.
+///
+/// Sequential prompts are subject to paste cascade: when a user pastes
+/// multi-line content into one field, embedded `\n`s submit subsequent
+/// prompts and silently scatter their data across fields. This struct holds
+/// pre-filled defaults and is mutated by individual edit actions invoked
+/// from a top-level menu — there is no auto-advance, so cascade can't
+/// happen.
+struct Form {
+    name: String,
+    version: String,
+    description: String,
+    homepage: String,
+    license: String,
+    cpu_cores: u32,
+    ram_gb: f64,
+    disk_gb: f64,
+    needs_gpu: bool,
+    inputs: Vec<IoSpec>,
+    outputs: Vec<IoSpec>,
+    entrypoint_command: String,
+    args_template: String,
+    subcommands: HashMap<String, Vec<String>>,
+}
+
+impl Form {
+    fn from_defaults(
+        meta: Option<&PublishMeta>,
+        fetched: &FetchedSource,
+        name_override: Option<&str>,
+        version_override: Option<&str>,
+    ) -> anyhow::Result<Self> {
+        let name = name_override
+            .map(|s| s.to_string())
+            .or_else(|| meta.and_then(|m| m.name.clone()))
+            .unwrap_or_else(|| fetched.name_hint.clone());
+
+        let version = version_override
+            .map(|s| s.to_string())
+            .or_else(|| meta.and_then(|m| m.version.clone()))
+            .or_else(|| fetched.version_hint.clone())
+            .unwrap_or_else(|| "0.1.0".to_string());
+
+        let inputs = parse_io_specs(meta.map(|m| m.inputs.as_slice()).unwrap_or(&[]))?;
+        let outputs = parse_io_specs(meta.map(|m| m.outputs.as_slice()).unwrap_or(&[]))?;
+        let subcommands = meta
+            .map(|m| parse_subcommand_strings(&m.subcommands))
+            .transpose()?
+            .unwrap_or_default();
+
+        Ok(Self {
+            name,
+            version,
+            description: meta.and_then(|m| m.description.clone()).unwrap_or_default(),
+            homepage: meta
+                .and_then(|m| m.homepage.clone())
+                .unwrap_or_else(|| fetched.source_url.clone()),
+            license: meta.and_then(|m| m.license.clone()).unwrap_or_default(),
+            cpu_cores: meta.and_then(|m| m.hardware.cpu_cores).unwrap_or(4),
+            ram_gb: meta.and_then(|m| m.hardware.ram_gb).unwrap_or(8.0),
+            disk_gb: meta.and_then(|m| m.hardware.disk_gb).unwrap_or(2.0),
+            needs_gpu: meta.and_then(|m| m.hardware.needs_gpu).unwrap_or(false),
+            inputs,
+            outputs,
+            entrypoint_command: meta
+                .and_then(|m| m.entrypoint.command.clone())
+                .unwrap_or_default(),
+            args_template: meta
+                .and_then(|m| m.entrypoint.args_template.clone())
+                .unwrap_or_default(),
+            subcommands,
+        })
+    }
+
+    fn validate(&self) -> Result<(), &'static str> {
+        if self.name.is_empty() {
+            return Err("tool name is required");
+        }
+        if self.version.is_empty() {
+            return Err("version is required");
+        }
+        if self.entrypoint_command.is_empty() && self.subcommands.is_empty() {
+            return Err("declare either an entrypoint command or at least one subcommand");
+        }
+        Ok(())
+    }
+
+    fn into_result(self) -> ScaffoldResult {
+        ScaffoldResult {
+            name: self.name,
+            version: self.version,
+            description: non_empty(self.description),
+            homepage: non_empty(self.homepage),
+            license: non_empty(self.license),
+            cpu_cores: self.cpu_cores,
+            ram_gb: self.ram_gb,
+            disk_gb: self.disk_gb,
+            needs_gpu: self.needs_gpu,
+            inputs: self.inputs,
+            outputs: self.outputs,
+            entrypoint_command: self.entrypoint_command,
+            args_template: non_empty(self.args_template),
+            subcommands: self.subcommands,
+        }
+    }
+}
+
+/// Interactive path: pre-fills from config + hints, then drops into a
+/// review-and-edit menu so the user can revisit any field before
+/// confirming. Each edit is taken in isolation, which sidesteps multi-line
+/// paste cascade entirely (there's no next-prompt to silently swallow
+/// embedded newlines).
 pub fn interactive(
     config: Option<&PublishConfig>,
     fetched: &FetchedSource,
@@ -198,216 +411,482 @@ pub fn interactive(
     version_override: Option<&str>,
 ) -> anyhow::Result<ScaffoldResult> {
     let meta = config.map(|c| &c.publish);
-    // Drop dialoguer's emoji prefixes (ok / x) for a calmer look while keeping
-    // the rest of ColorfulTheme's spacing and colors.
-    let theme = ColorfulTheme {
-        success_prefix: dialoguer::console::style("  ".into()).for_stderr(),
-        error_prefix: dialoguer::console::style("  ".into()).for_stderr().red(),
-        prompt_prefix: dialoguer::console::style("  ".into()).for_stderr(),
-        ..ColorfulTheme::default()
-    };
-
-    let name_default = name_override
-        .map(|s| s.to_string())
-        .or_else(|| meta.and_then(|m| m.name.clone()))
-        .unwrap_or_else(|| fetched.name_hint.clone());
-
-    let version_default = version_override
-        .map(|s| s.to_string())
-        .or_else(|| meta.and_then(|m| m.version.clone()))
-        .or_else(|| fetched.version_hint.clone())
-        .unwrap_or_else(|| "0.1.0".to_string());
+    let mut form = Form::from_defaults(meta, fetched, name_override, version_override)?;
 
     eprintln!();
-    let name: String = Input::with_theme(&theme)
-        .with_prompt("Tool name")
-        .default(name_default)
-        .interact_text()?;
+    loop {
+        let menu = build_menu(&form);
+        let choice = Select::new("Edit any field, then choose Confirm:", menu)
+            .with_page_size(20)
+            .prompt()?;
 
-    let version: String = Input::with_theme(&theme)
-        .with_prompt("Version")
-        .default(version_default)
-        .interact_text()?;
+        match choice.action {
+            Action::Confirm => match form.validate() {
+                Ok(()) => return Ok(form.into_result()),
+                Err(msg) => eprintln!(
+                    "  {} {msg}",
+                    "error:".if_supports_color(Stream::Stderr, |t| t.red().bold().to_string())
+                ),
+            },
+            Action::Cancel => anyhow::bail!("publish cancelled"),
+            Action::Edit(field) => edit_field(&mut form, field)?,
+        }
+    }
+}
 
-    let description: String = Input::with_theme(&theme)
-        .with_prompt("Description")
-        .default(meta.and_then(|m| m.description.clone()).unwrap_or_default())
-        .allow_empty(true)
-        .interact_text()?;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Field {
+    Name,
+    Version,
+    Description,
+    Homepage,
+    License,
+    CpuCores,
+    RamGb,
+    DiskGb,
+    NeedsGpu,
+    Inputs,
+    Outputs,
+    Entrypoint,
+    Subcommands,
+}
 
-    let homepage: String = Input::with_theme(&theme)
-        .with_prompt("Homepage URL")
-        .default(
-            meta.and_then(|m| m.homepage.clone())
-                .unwrap_or_else(|| fetched.source_url.clone()),
+#[derive(Debug, Clone, Copy)]
+enum Action {
+    Confirm,
+    Cancel,
+    Edit(Field),
+}
+
+#[derive(Debug, Clone)]
+struct MenuItem {
+    label: String,
+    action: Action,
+}
+
+impl std::fmt::Display for MenuItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.label)
+    }
+}
+
+fn build_menu(form: &Form) -> Vec<MenuItem> {
+    fn row(label: &str, value: impl AsRef<str>, action: Action) -> MenuItem {
+        let v = value.as_ref();
+        let display = if v.is_empty() {
+            "(none)".to_string()
+        } else {
+            v.to_string()
+        };
+        MenuItem {
+            label: format!("{label:<14}  {display}"),
+            action,
+        }
+    }
+
+    let inputs_summary = if form.inputs.is_empty() {
+        "(none)".to_string()
+    } else {
+        format!(
+            "{} declared: {}",
+            form.inputs.len(),
+            form.inputs
+                .iter()
+                .map(|s| s.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         )
-        .allow_empty(true)
-        .interact_text()?;
-
-    let license: String = Input::with_theme(&theme)
-        .with_prompt("License")
-        .default(meta.and_then(|m| m.license.clone()).unwrap_or_default())
-        .allow_empty(true)
-        .interact_text()?;
-
-    eprintln!(
-        "\n  {}",
-        "Hardware".if_supports_color(Stream::Stderr, |t| t.bold().to_string())
-    );
-
-    let cpu_cores: u32 = Input::with_theme(&theme)
-        .with_prompt("CPU cores")
-        .default(meta.and_then(|m| m.hardware.cpu_cores).unwrap_or(4))
-        .interact_text()?;
-
-    let ram_gb: f64 = Input::with_theme(&theme)
-        .with_prompt("RAM (GB)")
-        .default(meta.and_then(|m| m.hardware.ram_gb).unwrap_or(8.0))
-        .interact_text()?;
-
-    let disk_gb: f64 = Input::with_theme(&theme)
-        .with_prompt("Disk (GB)")
-        .default(meta.and_then(|m| m.hardware.disk_gb).unwrap_or(2.0))
-        .interact_text()?;
-
-    let needs_gpu = Confirm::with_theme(&theme)
-        .with_prompt("Needs GPU?")
-        .default(meta.and_then(|m| m.hardware.needs_gpu).unwrap_or(false))
-        .interact()?;
-
-    let config_inputs = meta.map(|m| m.inputs.as_slice()).unwrap_or(&[]);
-    let config_outputs = meta.map(|m| m.outputs.as_slice()).unwrap_or(&[]);
-
-    eprintln!(
-        "\n  {}",
-        "Inputs".if_supports_color(Stream::Stderr, |t| t.bold().to_string())
-    );
-    let inputs = collect_io_specs(&theme, config_inputs, "input")?;
-
-    eprintln!(
-        "\n  {}",
-        "Outputs".if_supports_color(Stream::Stderr, |t| t.bold().to_string())
-    );
-    let outputs = collect_io_specs(&theme, config_outputs, "output")?;
-
-    eprintln!(
-        "\n  {}",
-        "Entrypoint".if_supports_color(Stream::Stderr, |t| t.bold().to_string())
-    );
-
-    let default_cmd = meta
-        .and_then(|m| m.entrypoint.command.clone())
-        .unwrap_or_else(|| name.clone());
-    let entrypoint_command: String = Input::with_theme(&theme)
-        .with_prompt("Command")
-        .default(default_cmd)
-        .interact_text()?;
-
-    let args_template: String = Input::with_theme(&theme)
-        .with_prompt("Args template (use {port_name}, {cpu_cores}; leave blank to skip)")
-        .default(
-            meta.and_then(|m| m.entrypoint.args_template.clone())
-                .unwrap_or_default(),
+    };
+    let outputs_summary = if form.outputs.is_empty() {
+        "(none)".to_string()
+    } else {
+        format!(
+            "{} declared: {}",
+            form.outputs.len(),
+            form.outputs
+                .iter()
+                .map(|s| s.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         )
-        .allow_empty(true)
-        .interact_text()?;
+    };
+    let entrypoint_summary = if form.entrypoint_command.is_empty() {
+        "(none)".to_string()
+    } else if form.args_template.is_empty() {
+        form.entrypoint_command.clone()
+    } else {
+        format!("{} {}", form.entrypoint_command, form.args_template)
+    };
+    let subs_summary = if form.subcommands.is_empty() {
+        "(none)".to_string()
+    } else {
+        let mut names: Vec<&str> = form.subcommands.keys().map(|s| s.as_str()).collect();
+        names.sort();
+        format!("{} declared: {}", form.subcommands.len(), names.join(", "))
+    };
 
-    Ok(ScaffoldResult {
-        name,
-        version,
-        description: non_empty(description),
-        homepage: non_empty(homepage),
-        license: non_empty(license),
-        cpu_cores,
-        ram_gb,
-        disk_gb,
-        needs_gpu,
-        inputs,
-        outputs,
-        entrypoint_command,
-        args_template: non_empty(args_template),
+    vec![
+        MenuItem {
+            label: "Confirm and continue".into(),
+            action: Action::Confirm,
+        },
+        row("Tool name", &form.name, Action::Edit(Field::Name)),
+        row("Version", &form.version, Action::Edit(Field::Version)),
+        row(
+            "Description",
+            &form.description,
+            Action::Edit(Field::Description),
+        ),
+        row("Homepage", &form.homepage, Action::Edit(Field::Homepage)),
+        row("License", &form.license, Action::Edit(Field::License)),
+        row(
+            "CPU cores",
+            form.cpu_cores.to_string(),
+            Action::Edit(Field::CpuCores),
+        ),
+        row(
+            "RAM (GB)",
+            format!("{}", form.ram_gb),
+            Action::Edit(Field::RamGb),
+        ),
+        row(
+            "Disk (GB)",
+            format!("{}", form.disk_gb),
+            Action::Edit(Field::DiskGb),
+        ),
+        row(
+            "GPU required",
+            if form.needs_gpu { "yes" } else { "no" },
+            Action::Edit(Field::NeedsGpu),
+        ),
+        row("Inputs", inputs_summary, Action::Edit(Field::Inputs)),
+        row("Outputs", outputs_summary, Action::Edit(Field::Outputs)),
+        row(
+            "Entrypoint",
+            entrypoint_summary,
+            Action::Edit(Field::Entrypoint),
+        ),
+        row(
+            "Subcommands",
+            subs_summary,
+            Action::Edit(Field::Subcommands),
+        ),
+        MenuItem {
+            label: "Cancel".into(),
+            action: Action::Cancel,
+        },
+    ]
+}
+
+fn edit_field(form: &mut Form, field: Field) -> anyhow::Result<()> {
+    match field {
+        Field::Name => form.name = text("Tool name", &form.name, false)?,
+        Field::Version => form.version = text("Version", &form.version, false)?,
+        Field::Description => form.description = text("Description", &form.description, true)?,
+        Field::Homepage => form.homepage = text("Homepage URL", &form.homepage, true)?,
+        Field::License => form.license = pick_license(&form.license)?,
+        Field::CpuCores => form.cpu_cores = number("CPU cores", form.cpu_cores)?,
+        Field::RamGb => form.ram_gb = number("RAM (GB)", form.ram_gb)?,
+        Field::DiskGb => form.disk_gb = number("Disk (GB)", form.disk_gb)?,
+        Field::NeedsGpu => {
+            form.needs_gpu = Confirm::new("Needs GPU?")
+                .with_default(form.needs_gpu)
+                .prompt()?;
+        }
+        Field::Inputs => edit_io_list(&mut form.inputs, "input")?,
+        Field::Outputs => edit_io_list(&mut form.outputs, "output")?,
+        Field::Entrypoint => edit_entrypoint(form)?,
+        Field::Subcommands => edit_subcommands(&mut form.subcommands)?,
+    }
+    Ok(())
+}
+
+fn text(prompt: &str, current: &str, allow_empty: bool) -> anyhow::Result<String> {
+    let mut t = Text::new(prompt);
+    if !current.is_empty() {
+        t = t.with_initial_value(current);
+    }
+    let v = t.prompt()?;
+    if !allow_empty && v.is_empty() {
+        anyhow::bail!("{prompt} must not be empty");
+    }
+    Ok(v)
+}
+
+fn number<T>(prompt: &str, current: T) -> anyhow::Result<T>
+where
+    T: Clone + std::fmt::Display + std::str::FromStr,
+    T::Err: std::fmt::Debug + std::fmt::Display,
+{
+    let v = CustomType::<T>::new(prompt)
+        .with_default(current)
+        .with_error_message("please enter a valid number")
+        .prompt()?;
+    Ok(v)
+}
+
+fn pick_license(current: &str) -> anyhow::Result<String> {
+    let cursor = SPDX_LICENSES
+        .iter()
+        .position(|x| *x == current)
+        .unwrap_or(SPDX_LICENSES.len() - 2); // (none) by default
+    let chosen = Select::new("License", SPDX_LICENSES.to_vec())
+        .with_starting_cursor(cursor)
+        .prompt()?;
+
+    Ok(match chosen {
+        "(none)" => String::new(),
+        "Custom…" => Text::new("Custom SPDX identifier (or full text)")
+            .with_initial_value(current)
+            .prompt()?,
+        other => other.to_string(),
     })
 }
 
-fn collect_io_specs(
-    theme: &ColorfulTheme,
-    prefilled: &[IoMeta],
-    label: &str,
-) -> anyhow::Result<Vec<IoSpec>> {
-    let mut specs = parse_io_specs(prefilled)?;
-
-    if !prefilled.is_empty() {
-        for s in &specs {
-            eprintln!(
-                "  {} {} ({})",
-                "Pre-filled".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
-                s.name,
-                s.r#type
-            );
-        }
-    }
-
-    loop {
-        let prompt = if specs.is_empty() {
-            format!("Add {label}?")
+fn edit_entrypoint(form: &mut Form) -> anyhow::Result<()> {
+    let want = Confirm::new("Declare an entrypoint command?")
+        .with_default(!form.entrypoint_command.is_empty())
+        .with_help_message(if form.subcommands.is_empty() {
+            "required when no subcommands are declared"
         } else {
-            format!("Add another {label}?")
-        };
+            "optional — subcommands cover this tool"
+        })
+        .prompt()?;
 
-        if !Confirm::with_theme(theme)
-            .with_prompt(prompt)
-            .default(specs.is_empty())
-            .interact()?
-        {
-            break;
-        }
-
-        let name: String = Input::with_theme(theme)
-            .with_prompt("Name")
-            .interact_text()?;
-
-        let type_str = prompt_type(theme)?;
-
-        let cardinality_idx = Select::with_theme(theme)
-            .with_prompt("Cardinality")
-            .items(&["one", "many", "optional"])
-            .default(0)
-            .interact()?;
-        let cardinality = match cardinality_idx {
-            1 => Cardinality::Many,
-            2 => Cardinality::Optional,
-            _ => Cardinality::One,
-        };
-
-        let default_mount = format!("/workspace/{}", name);
-        let mount: String = Input::with_theme(theme)
-            .with_prompt("Mount path in container")
-            .default(default_mount)
-            .interact_text()?;
-
-        let description: String = Input::with_theme(theme)
-            .with_prompt("Description (optional)")
-            .allow_empty(true)
-            .interact_text()?;
-
-        specs.push(IoSpec {
-            name,
-            r#type: type_str.parse().map_err(|e| anyhow::anyhow!("{}", e))?,
-            cardinality,
-            mount: Some(PathBuf::from(mount)),
-            description: non_empty(description),
-            default: None,
-        });
+    if !want {
+        form.entrypoint_command.clear();
+        form.args_template.clear();
+        return Ok(());
     }
-
-    Ok(specs)
+    let default_cmd = if form.entrypoint_command.is_empty() {
+        form.name.clone()
+    } else {
+        form.entrypoint_command.clone()
+    };
+    form.entrypoint_command = Text::new("Command")
+        .with_initial_value(&default_cmd)
+        .prompt()?;
+    let tmpl = Text::new("Args template")
+        .with_help_message("use {port_name}, {cpu_cores}; leave blank to skip")
+        .with_initial_value(&form.args_template)
+        .prompt()?;
+    form.args_template = tmpl;
+    Ok(())
 }
 
-fn prompt_type(theme: &ColorfulTheme) -> anyhow::Result<String> {
+fn edit_io_list(specs: &mut Vec<IoSpec>, label: &str) -> anyhow::Result<()> {
     loop {
-        let input: String = Input::with_theme(theme)
-            .with_prompt("Type (enter ? to list all types)")
-            .interact_text()?;
+        #[derive(Debug, Clone)]
+        struct Row {
+            label: String,
+            kind: RowKind,
+        }
+        #[derive(Debug, Clone)]
+        enum RowKind {
+            Done,
+            Add,
+            Edit(usize),
+            Remove(usize),
+        }
+        impl std::fmt::Display for Row {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(&self.label)
+            }
+        }
+
+        let mut rows: Vec<Row> = vec![Row {
+            label: "Done".into(),
+            kind: RowKind::Done,
+        }];
+        rows.push(Row {
+            label: format!("Add {label}"),
+            kind: RowKind::Add,
+        });
+        for (i, spec) in specs.iter().enumerate() {
+            rows.push(Row {
+                label: format!(
+                    "Edit: {} [{}] ({})",
+                    spec.name, spec.r#type, spec.cardinality
+                ),
+                kind: RowKind::Edit(i),
+            });
+            rows.push(Row {
+                label: format!("Remove: {}", spec.name),
+                kind: RowKind::Remove(i),
+            });
+        }
+
+        let pick = Select::new(&format!("{label}s"), rows)
+            .with_page_size(20)
+            .prompt()?;
+        match pick.kind {
+            RowKind::Done => return Ok(()),
+            RowKind::Add => {
+                let s = prompt_io_spec(label, None)?;
+                specs.push(s);
+            }
+            RowKind::Edit(i) => {
+                let s = prompt_io_spec(label, Some(&specs[i]))?;
+                specs[i] = s;
+            }
+            RowKind::Remove(i) => {
+                specs.remove(i);
+            }
+        }
+    }
+}
+
+fn prompt_io_spec(label: &str, existing: Option<&IoSpec>) -> anyhow::Result<IoSpec> {
+    let initial_name = existing.map(|s| s.name.clone()).unwrap_or_default();
+    let name = Text::new(&format!("{label} name"))
+        .with_initial_value(&initial_name)
+        .prompt()?;
+    if name.is_empty() {
+        anyhow::bail!("name must not be empty");
+    }
+
+    let initial_type = existing.map(|s| s.r#type.to_string()).unwrap_or_default();
+    let type_str = prompt_type(&initial_type)?;
+
+    let cardinalities = vec!["one", "many", "optional"];
+    let cursor = existing
+        .map(|s| match s.cardinality {
+            Cardinality::One => 0,
+            Cardinality::Many => 1,
+            Cardinality::Optional => 2,
+        })
+        .unwrap_or(0);
+    let cardinality = match Select::new("Cardinality", cardinalities)
+        .with_starting_cursor(cursor)
+        .prompt()?
+    {
+        "many" => Cardinality::Many,
+        "optional" => Cardinality::Optional,
+        _ => Cardinality::One,
+    };
+
+    let default_mount = existing
+        .and_then(|s| s.mount.as_ref().map(|p| p.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| format!("/workspace/{name}"));
+    let mount = Text::new("Mount path in container")
+        .with_initial_value(&default_mount)
+        .prompt()?;
+
+    let initial_desc = existing
+        .and_then(|s| s.description.clone())
+        .unwrap_or_default();
+    let description = Text::new("Description (optional)")
+        .with_initial_value(&initial_desc)
+        .prompt()?;
+
+    Ok(IoSpec {
+        name,
+        r#type: type_str.parse().map_err(|e| anyhow::anyhow!("{}", e))?,
+        cardinality,
+        mount: Some(PathBuf::from(mount)),
+        description: non_empty(description),
+        default: None,
+    })
+}
+
+fn edit_subcommands(subs: &mut HashMap<String, Vec<String>>) -> anyhow::Result<()> {
+    loop {
+        #[derive(Debug, Clone)]
+        struct Row {
+            label: String,
+            kind: SubKind,
+        }
+        #[derive(Debug, Clone)]
+        enum SubKind {
+            Done,
+            Add,
+            Edit(String),
+            Remove(String),
+        }
+        impl std::fmt::Display for Row {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(&self.label)
+            }
+        }
+
+        let mut rows: Vec<Row> = vec![
+            Row {
+                label: "Done".into(),
+                kind: SubKind::Done,
+            },
+            Row {
+                label: "Add subcommand".into(),
+                kind: SubKind::Add,
+            },
+        ];
+        let mut names: Vec<&String> = subs.keys().collect();
+        names.sort();
+        for n in names {
+            let cmd = subs[n].join(" ");
+            rows.push(Row {
+                label: format!("Edit: {n} = {cmd}"),
+                kind: SubKind::Edit(n.clone()),
+            });
+            rows.push(Row {
+                label: format!("Remove: {n}"),
+                kind: SubKind::Remove(n.clone()),
+            });
+        }
+
+        let pick = Select::new("Subcommands", rows)
+            .with_page_size(20)
+            .with_help_message("for multi-script tools, e.g. genie2 train, genie2 sample")
+            .prompt()?;
+        match pick.kind {
+            SubKind::Done => return Ok(()),
+            SubKind::Add => {
+                let (n, argv) = prompt_subcommand("", &[])?;
+                subs.insert(n, argv);
+            }
+            SubKind::Edit(name) => {
+                let existing = subs.get(&name).cloned().unwrap_or_default();
+                let (new_name, argv) = prompt_subcommand(&name, &existing)?;
+                if new_name != name {
+                    subs.remove(&name);
+                }
+                subs.insert(new_name, argv);
+            }
+            SubKind::Remove(name) => {
+                subs.remove(&name);
+            }
+        }
+    }
+}
+
+fn prompt_subcommand(
+    initial_name: &str,
+    initial_cmd: &[String],
+) -> anyhow::Result<(String, Vec<String>)> {
+    let name = Text::new("Subcommand name")
+        .with_help_message("e.g. train, sample_unconditional")
+        .with_initial_value(initial_name)
+        .prompt()?;
+    if name.is_empty() || name.starts_with('-') {
+        anyhow::bail!("name must be non-empty and not start with '-'");
+    }
+    let initial_cmd_str = initial_cmd.join(" ");
+    let cmd_str = Text::new("Command")
+        .with_help_message("e.g. python genie/train.py")
+        .with_initial_value(&initial_cmd_str)
+        .prompt()?;
+    let argv = shell_split(&cmd_str)?;
+    if argv.is_empty() {
+        anyhow::bail!("command must not be empty");
+    }
+    Ok((name, argv))
+}
+
+fn prompt_type(initial: &str) -> anyhow::Result<String> {
+    loop {
+        let input = Text::new("Type")
+            .with_help_message("enter ? to list all types")
+            .with_initial_value(initial)
+            .prompt()?;
 
         if input == "?" {
             print_type_list();

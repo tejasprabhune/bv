@@ -2,6 +2,22 @@
 
 All notable changes to `bv` are documented here. Follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.11] - 2026-04-28
+
+### Added
+
+- `[tool.subcommands]` manifest section: tool-namespaced launchers for multi-script tools (ML repos like genie2, AlphaFold). `bv run <toolid> <subcommand> ...args` runs the mapped argv prefix with the user's args appended verbatim. Names stay namespaced under the tool id, so generic names (`train`, `eval`) don't collide across tools and don't get global PATH shims.
+- `bv run <toolid>` with no entrypoint and only subcommands prints the available subcommand list.
+- `bv show` and `bv run --info` display the subcommand table when present.
+- `[tool.entrypoint]` is now optional. A manifest must declare either an entrypoint, subcommands, or both.
+- `bv publish` interactive scaffold prompts for subcommands and an optional default entrypoint.
+
+### Changed
+
+- `bv publish` interactive flow now uses a review-and-edit menu instead of linear prompts. All fields are pre-filled from `bv-publish.toml` and source hints; pick any field to edit, then choose "Confirm" to continue. Lets users go back and revise prior answers, and structurally prevents multi-line paste cascade (each edit is taken in isolation, no auto-advance).
+- License field is now a Select with common SPDX identifiers (MIT, Apache-2.0, BSD-3-Clause, GPL-3.0-only, etc.) plus "Custom…" for free-form entry.
+- Replaced `dialoguer` with `inquire` for input handling. Word-delete (Alt+Backspace, Ctrl+W), Home/End, and other readline-style shortcuts now work in publish prompts.
+
 ## [0.1.9] - 2026-04-28
 
 ### Added

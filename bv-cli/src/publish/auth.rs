@@ -29,10 +29,9 @@ pub fn resolve_github_token(flag: Option<&str>, non_interactive: bool) -> anyhow
     );
     eprintln!("  Or run `gh auth login` and re-run this command.");
     let token = prompt_token("Paste GitHub token")?;
-    if dialoguer::Confirm::new()
-        .with_prompt("Save token to OS keychain for future use?")
-        .default(true)
-        .interact()
+    if inquire::Confirm::new("Save token to OS keychain for future use?")
+        .with_default(true)
+        .prompt()
         .unwrap_or(false)
     {
         keyring_set("github-token", &token);
@@ -83,8 +82,8 @@ fn keyring_set(key: &str, token: &str) {
 }
 
 fn prompt_token(prompt: &str) -> anyhow::Result<String> {
-    dialoguer::Password::new()
-        .with_prompt(prompt)
-        .interact()
+    inquire::Password::new(prompt)
+        .without_confirmation()
+        .prompt()
         .context("failed to read token from terminal")
 }

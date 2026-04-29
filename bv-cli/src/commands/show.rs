@@ -108,6 +108,25 @@ fn print_human(tool: &ToolManifest) {
                 .if_supports_color(Stream::Stderr, |t| t.yellow().to_string())
         );
     }
+
+    if let Some(ep) = &tool.entrypoint {
+        println!();
+        println!("Entrypoint: {}", ep.command);
+        if let Some(tmpl) = &ep.args_template {
+            println!("Args template: {tmpl}");
+        }
+    }
+
+    if !tool.subcommands.is_empty() {
+        println!();
+        println!("Subcommands:");
+        let mut entries: Vec<(&String, &Vec<String>)> = tool.subcommands.iter().collect();
+        entries.sort_by_key(|(k, _)| k.as_str());
+        let max_name = entries.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+        for (name, cmd) in entries {
+            println!("  {:width$}  {}", name, cmd.join(" "), width = max_name);
+        }
+    }
 }
 
 fn print_io_line(indent: &str, spec: &IoSpec) {
@@ -141,6 +160,8 @@ struct JsonTool<'a> {
     image: JsonImage<'a>,
     inputs: Vec<JsonIo<'a>>,
     outputs: Vec<JsonIo<'a>>,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    subcommands: std::collections::BTreeMap<&'a str, &'a Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -189,6 +210,7 @@ fn print_json(manifest: &Manifest) -> anyhow::Result<()> {
             },
             inputs: t.inputs.iter().map(to_json_io).collect(),
             outputs: t.outputs.iter().map(to_json_io).collect(),
+            subcommands: t.subcommands.iter().map(|(k, v)| (k.as_str(), v)).collect(),
         },
     };
     println!("{}", serde_json::to_string_pretty(&out)?);
@@ -338,6 +360,7 @@ args_template = "-query {query} -db {db} -out {output} -num_threads {cpu_cores}"
                 },
                 inputs: t.inputs.iter().map(to_json_io).collect(),
                 outputs: t.outputs.iter().map(to_json_io).collect(),
+                subcommands: t.subcommands.iter().map(|(k, v)| (k.as_str(), v)).collect(),
             },
         };
         let json = serde_json::to_string_pretty(&out).unwrap();

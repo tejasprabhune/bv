@@ -305,7 +305,16 @@ pub struct ToolManifest {
     /// Typed outputs. Optional; manifests without this section parse unchanged.
     #[serde(default)]
     pub outputs: Vec<IoSpec>,
-    pub entrypoint: EntrypointSpec,
+    /// Default invocation. Required unless `[tool.subcommands]` is non-empty;
+    /// see `validate()`. Multi-script tools may omit this entirely.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<EntrypointSpec>,
+    /// Tool-namespaced launchers. Reachable as `bv run <toolid> <name> ...args`.
+    /// Each value is the literal argv prefix; user args are appended verbatim.
+    /// Unlike `[tool.binaries]`, names are not exposed on PATH or in the global
+    /// binary index, so generic names (`train`, `eval`) are safe.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub subcommands: HashMap<String, Vec<String>>,
     /// Container paths the tool writes to during normal execution and that
     /// should therefore be bound to writable host directories. Critical on
     /// apptainer (read-only SIF root), nice-to-have on docker (lets caches
@@ -332,20 +341,22 @@ impl ToolManifest {
 
     /// Returns the effective list of binary names this tool exposes.
     ///
-    /// When no `[tool.binaries]` block is present, defaults to
-    /// `[entrypoint.command]` (the basename component for path-style commands).
+    /// When `[tool.binaries]` is absent, defaults to the entrypoint command's
+    /// basename. Multi-script tools without an entrypoint expose no binaries
+    /// (their subcommands stay namespaced under the tool id).
     pub fn effective_binaries(&self) -> Vec<&str> {
-        match &self.binaries {
-            Some(b) => b.exposed.iter().map(|s| s.as_str()).collect(),
-            None => {
-                let cmd = &self.entrypoint.command;
-                let name = cmd
-                    .rfind('/')
-                    .map(|i| &cmd[i + 1..])
-                    .unwrap_or(cmd.as_str());
-                vec![name]
-            }
+        if let Some(b) = &self.binaries {
+            return b.exposed.iter().map(|s| s.as_str()).collect();
         }
+        let Some(ep) = &self.entrypoint else {
+            return vec![];
+        };
+        let cmd = &ep.command;
+        let name = cmd
+            .rfind('/')
+            .map(|i| &cmd[i + 1..])
+            .unwrap_or(cmd.as_str());
+        vec![name]
     }
 }
 
@@ -427,11 +438,38 @@ impl Manifest {
                 message: "must not be empty".into(),
             });
         }
-        if t.entrypoint.command.is_empty() {
-            errors.push(ValidationError {
+        match (&t.entrypoint, t.subcommands.is_empty()) {
+            (None, true) => errors.push(ValidationError {
+                field: "tool.entrypoint".into(),
+                message: "must declare either [tool.entrypoint] or [tool.subcommands]".into(),
+            }),
+            (Some(ep), _) if ep.command.is_empty() => errors.push(ValidationError {
                 field: "tool.entrypoint.command".into(),
                 message: "must not be empty".into(),
-            });
+            }),
+            _ => {}
+        }
+
+        for (name, cmd) in &t.subcommands {
+            if name.is_empty() {
+                errors.push(ValidationError {
+                    field: "tool.subcommands".into(),
+                    message: "subcommand name must not be empty".into(),
+                });
+                continue;
+            }
+            if name.starts_with('-') {
+                errors.push(ValidationError {
+                    field: format!("tool.subcommands.{name}"),
+                    message: "subcommand name must not start with '-'".into(),
+                });
+            }
+            if cmd.is_empty() {
+                errors.push(ValidationError {
+                    field: format!("tool.subcommands.{name}"),
+                    message: "command vector must not be empty".into(),
+                });
+            }
         }
 
         for spec in &t.inputs {
@@ -465,8 +503,10 @@ impl Manifest {
                     });
                 }
             }
-            if !binaries.exposed.is_empty() {
-                let cmd = &t.entrypoint.command;
+            if !binaries.exposed.is_empty()
+                && let Some(ep) = &t.entrypoint
+            {
+                let cmd = &ep.command;
                 let basename = cmd.rfind('/').map(|i| &cmd[i + 1..]).unwrap_or(cmd);
                 if !binaries.exposed.iter().any(|b| b == basename) {
                     errors.push(ValidationError {
@@ -636,6 +676,99 @@ command = "t"
         assert!(v12_1 < v12_4);
         assert!(v12_4 < v13_0);
         assert_eq!(v12_1, "12.1".parse::<CudaVersion>().unwrap());
+    }
+
+    #[test]
+    fn subcommands_only_parses() {
+        let s = r#"
+[tool]
+id = "genie2"
+version = "1.0.0"
+
+[tool.image]
+backend = "docker"
+reference = "ghcr.io/example/genie2:1.0.0"
+
+[tool.hardware]
+
+[tool.subcommands]
+train                = ["python", "genie/train.py"]
+sample_unconditional = ["python", "genie/sample_unconditional.py"]
+"#;
+        let m = Manifest::from_toml_str(s).unwrap();
+        assert!(m.tool.entrypoint.is_none());
+        assert_eq!(m.tool.subcommands.len(), 2);
+        assert_eq!(
+            m.tool.subcommands.get("train").unwrap(),
+            &vec!["python".to_string(), "genie/train.py".to_string()]
+        );
+        m.validate().expect("subcommand-only manifest is valid");
+        // No entrypoint and no [tool.binaries] => no exposed binaries.
+        assert!(m.tool.effective_binaries().is_empty());
+    }
+
+    #[test]
+    fn validate_requires_entrypoint_or_subcommands() {
+        let s = r#"
+[tool]
+id = "broken"
+version = "1.0.0"
+
+[tool.image]
+backend = "docker"
+reference = "example/broken:1.0.0"
+
+[tool.hardware]
+"#;
+        let m = Manifest::from_toml_str(s).unwrap();
+        let errs = m.validate().unwrap_err();
+        assert!(
+            errs.iter().any(|e| e.field == "tool.entrypoint"),
+            "expected entrypoint-or-subcommands error, got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_dash_prefixed_subcommand() {
+        let s = r#"
+[tool]
+id = "t"
+version = "1.0.0"
+
+[tool.image]
+backend = "docker"
+reference = "example/t:1.0.0"
+
+[tool.hardware]
+
+[tool.subcommands]
+"-bad" = ["python", "x.py"]
+"#;
+        let m = Manifest::from_toml_str(s).unwrap();
+        let errs = m.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field.contains("-bad")));
+    }
+
+    #[test]
+    fn subcommands_round_trip() {
+        let s = r#"
+[tool]
+id = "t"
+version = "1.0.0"
+
+[tool.image]
+backend = "docker"
+reference = "example/t:1.0.0"
+
+[tool.hardware]
+
+[tool.subcommands]
+go = ["python", "main.py"]
+"#;
+        let m = Manifest::from_toml_str(s).unwrap();
+        let serialised = m.to_toml_string().unwrap();
+        let reparsed = Manifest::from_toml_str(&serialised).unwrap();
+        assert_eq!(reparsed.tool.subcommands.len(), 1);
     }
 
     #[test]

@@ -155,11 +155,12 @@ mod tests {
             reference_data: Default::default(),
             inputs: vec![],
             outputs: vec![],
-            entrypoint: EntrypointSpec {
+            entrypoint: Some(EntrypointSpec {
                 command: "colabfold_batch".into(),
                 args_template: None,
                 env: Default::default(),
-            },
+            }),
+            subcommands: Default::default(),
             cache_paths: cache_paths.into_iter().map(String::from).collect(),
             binaries: None,
             smoke: None,

@@ -64,6 +64,7 @@
 | `image` | object | yes |
 | `inputs` | array | yes (empty if untyped) |
 | `outputs` | array | yes (empty if untyped) |
+| `subcommands` | object | no | Map of subcommand name -> argv prefix (array of strings). Omitted when empty. See "Subcommands" below. |
 
 ### I/O entry (inputs and outputs use the same shape)
 
@@ -121,6 +122,33 @@ bv show blast --format json-schema # JSON Schema for inputs (draft-07)
   "required": ["query", "db"]
 }
 ```
+
+## Subcommands
+
+Multi-script tools (typical for ML repos like genie2, AlphaFold, ESMFold) declare a `[tool.subcommands]` table in their manifest. Each entry maps a name to the argv prefix to launch:
+
+```toml
+[tool.subcommands]
+train                = ["python", "genie/train.py"]
+sample_unconditional = ["python", "genie/sample_unconditional.py"]
+```
+
+Invocation: `bv run genie2 sample_unconditional --name base --epoch 40` runs `python genie/sample_unconditional.py --name base --epoch 40` in the container. User args after the subcommand name are passed through verbatim.
+
+Subcommand names stay namespaced under the tool id. Unlike `[tool.binaries]`, they do **not** get global shims or appear in the binary index, so generic names (`train`, `eval`) are safe across tools.
+
+A manifest must declare either `[tool.entrypoint]` or `[tool.subcommands]` (or both). If only subcommands are declared, `bv run <tool>` with no args prints the available subcommand list.
+
+In `bv show --json` output, `subcommands` is rendered as:
+
+```json
+"subcommands": {
+  "train": ["python", "genie/train.py"],
+  "sample_unconditional": ["python", "genie/sample_unconditional.py"]
+}
+```
+
+The field is omitted entirely when empty.
 
 ## Versioning policy
 
