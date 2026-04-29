@@ -881,18 +881,55 @@ fn prompt_subcommand(
     Ok((name, argv))
 }
 
+const CUSTOM_TYPE_OPTION: &str = "(custom or parametric type, e.g. fasta[alphabet=dna]…)";
+
 fn prompt_type(initial: &str) -> anyhow::Result<String> {
+    let mut ids: Vec<&'static str> = bv_types::known_type_ids().collect();
+    ids.sort_unstable();
+
+    let display: Vec<String> = ids
+        .iter()
+        .map(|id| {
+            let desc = bv_types::lookup(id)
+                .map(|d| d.description.as_str())
+                .unwrap_or("");
+            if desc.is_empty() {
+                (*id).to_string()
+            } else {
+                format!(
+                    "{id:<14} {}",
+                    desc.if_supports_color(Stream::Stderr, |t| t.dimmed().to_string())
+                )
+            }
+        })
+        .chain(std::iter::once(CUSTOM_TYPE_OPTION.to_string()))
+        .collect();
+
+    // Pre-select the existing/initial type when re-editing.
+    let initial_base = initial.split('[').next().unwrap_or("");
+    let cursor = ids
+        .iter()
+        .position(|id| *id == initial_base)
+        .unwrap_or(display.len() - 1);
+
+    let picked = Select::new("Type", display)
+        .with_starting_cursor(cursor)
+        .with_page_size(15)
+        .prompt()?;
+
+    if picked == CUSTOM_TYPE_OPTION {
+        return prompt_custom_type(initial);
+    }
+
+    let id = picked.split_whitespace().next().unwrap_or("file").to_string();
+    Ok(id)
+}
+
+fn prompt_custom_type(initial: &str) -> anyhow::Result<String> {
     loop {
-        let input = Text::new("Type")
-            .with_help_message("enter ? to list all types")
+        let input = Text::new("Custom type (id or id[param=value])")
             .with_initial_value(initial)
             .prompt()?;
-
-        if input == "?" {
-            print_type_list();
-            continue;
-        }
-
         let base = input.split('[').next().unwrap_or(&input);
         if bv_types::lookup(base).is_some() {
             return Ok(input);
@@ -906,28 +943,12 @@ fn prompt_type(initial: &str) -> anyhow::Result<String> {
             );
         } else {
             eprintln!(
-                "  {} unknown type '{}'; enter ? to list all types",
+                "  {} unknown type '{}'",
                 "hint:".if_supports_color(Stream::Stderr, |t| t.yellow().to_string()),
                 base
             );
         }
     }
-}
-
-fn print_type_list() {
-    let mut ids: Vec<&str> = bv_types::known_type_ids().collect();
-    ids.sort_unstable();
-
-    eprintln!(
-        "\n  {}",
-        "Available types:".if_supports_color(Stream::Stderr, |t| t.bold().to_string())
-    );
-    for id in ids {
-        if let Some(def) = bv_types::lookup(id) {
-            eprintln!("    {:20} {}", id, def.description);
-        }
-    }
-    eprintln!();
 }
 
 fn parse_io_specs(metas: &[IoMeta]) -> anyhow::Result<Vec<IoSpec>> {
