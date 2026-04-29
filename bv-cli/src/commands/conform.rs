@@ -156,12 +156,6 @@ pub async fn run_all(
         } else if skip_reference_data && requires_reference_data(&manifest) {
             Outcome::Skipped("requires reference data")
         } else {
-            eprintln!(
-                "  {} {}@{}",
-                "==>".if_supports_color(Stream::Stderr, |t| t.cyan().to_string()),
-                summary.id,
-                version
-            );
             run_one(&manifest, &runtime, /*verbose=*/ false)
         };
 
@@ -175,7 +169,6 @@ pub async fn run_all(
             eprintln!("        {msg}");
         }
         results.push((summary.id.clone(), version, outcome));
-        eprintln!();
     }
 
     print_summary(&results, started.elapsed());

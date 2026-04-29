@@ -203,6 +203,7 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
             spec: manifest.tool.hardware.gpu.clone(),
         },
         working_dir: Some(PathBuf::from("/workspace")),
+        capture_output: false,
     };
 
     runtime

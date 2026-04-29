@@ -31,11 +31,17 @@ impl ConformanceResult {
     }
 }
 
-/// Probe args we try, in order, when smoke-checking a binary.
-/// First one to exit 0 wins. Tools have wildly inconsistent conventions
-/// (BLAST uses `-version`, samtools uses `--version`, samtools subcommands
-/// take `version`...), so we cast a wide net.
-const DEFAULT_PROBES: &[&str] = &["--version", "-version", "--help", "-h", "-v", "version"];
+/// Probe args we try, in order, when smoke-checking a binary. We accept two
+/// signals as "alive": exit code 0, OR substantial output to stdout/stderr.
+/// The latter catches tools that follow the Unix convention of "print help,
+/// exit non-zero" for unknown args (bwa, seqtk, fasttree). A binary that
+/// segfaulted on load would produce neither, so this is a safe relaxation.
+const DEFAULT_PROBES: &[&str] = &["--version", "-version", "--help", "-h", "-v", "version", ""];
+
+/// Minimum bytes of stdout+stderr to count a probe as "produced output".
+/// Tuned to filter out noise like a single newline or a one-line "command not
+/// found" while accepting any real help/version blurb (typically >100 bytes).
+const ALIVE_OUTPUT_THRESHOLD: usize = 30;
 
 /// Run the smoke check for a manifest using the given runtime.
 ///
@@ -68,9 +74,11 @@ pub fn run(
     }
 }
 
-/// For each binary, try probes until one exits 0. Manifest-declared
-/// `[tool.smoke]` overrides take precedence: a `probes` entry pins the
-/// probe to one specific arg, and a `skip` entry omits the binary entirely.
+/// For each binary, try probes until one is accepted. A probe is accepted
+/// if the binary exits 0 OR produces ≥ALIVE_OUTPUT_THRESHOLD bytes on
+/// stdout/stderr. Manifest-declared `[tool.smoke]` overrides take precedence:
+/// a `probes` entry pins the probe to one specific arg, and a `skip` entry
+/// omits the binary entirely.
 fn check_binaries(
     manifest: &Manifest,
     image_digest: &str,
@@ -123,9 +131,11 @@ fn check_binaries(
                 }],
                 gpu: GpuProfile { spec: None },
                 working_dir: Some(PathBuf::from("/workspace")),
+                capture_output: true,
             };
             if let Ok(outcome) = runtime.run(&spec)
-                && outcome.exit_code == 0
+                && (outcome.exit_code == 0
+                    || outcome.stdout.len() + outcome.stderr.len() >= ALIVE_OUTPUT_THRESHOLD)
             {
                 passed = true;
                 break;

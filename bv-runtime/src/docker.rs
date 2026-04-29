@@ -145,6 +145,21 @@ impl ContainerRuntime for DockerRuntime {
             cmd.arg(arg);
         }
 
+        if spec.capture_output {
+            cmd.stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let output = cmd
+                .output()
+                .map_err(|e| BvError::RuntimeError(format!("docker run failed to launch: {e}")))?;
+            return Ok(RunOutcome {
+                exit_code: output.status.code().unwrap_or(-1),
+                duration: start.elapsed(),
+                stdout: output.stdout,
+                stderr: output.stderr,
+            });
+        }
+
         cmd.stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
@@ -156,6 +171,8 @@ impl ContainerRuntime for DockerRuntime {
         Ok(RunOutcome {
             exit_code: status.code().unwrap_or(-1),
             duration: start.elapsed(),
+            stdout: Vec::new(),
+            stderr: Vec::new(),
         })
     }
 

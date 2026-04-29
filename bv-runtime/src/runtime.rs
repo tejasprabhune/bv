@@ -155,12 +155,21 @@ pub struct RunSpec {
     pub mounts: Vec<Mount>,
     pub gpu: GpuProfile,
     pub working_dir: Option<PathBuf>,
+    /// When true, capture stdout+stderr into `RunOutcome` instead of inheriting
+    /// to the host. Used by `bv conformance` to inspect probe output without
+    /// flooding the user's terminal.
+    #[doc(hidden)]
+    pub capture_output: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RunOutcome {
     pub exit_code: i32,
     pub duration: Duration,
+    /// Captured stdout when `RunSpec.capture_output` is true; empty otherwise.
+    pub stdout: Vec<u8>,
+    /// Captured stderr when `RunSpec.capture_output` is true; empty otherwise.
+    pub stderr: Vec<u8>,
 }
 
 // ProgressReporter
