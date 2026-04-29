@@ -918,20 +918,35 @@ fn prompt_subcommand(
 
 /// Rewrite tokens that look like relative script paths to be image-absolute.
 ///
-/// A token is rewritten when it: (1) doesn't already start with `/`, and
-/// (2) contains a `/` or ends with a script-like extension (`.py`, `.sh`,
-/// `.R`, `.pl`, `.js`, `.ts`). Other tokens (flags, env vars, command names
-/// like `python`) are left alone.
+/// A token is rewritten only when ALL of the following hold:
+///   - doesn't start with `-` (rules out `--config`, `-m`, etc.)
+///   - doesn't start with `/` (already absolute)
+///   - contains no `=` and no `:` (rules out flag-with-value like
+///     `--config=cfg/x.yaml`, URLs like `s3://bucket/key`, and env-style
+///     `VAR=val/x`)
+///   - AND either ends with a known script extension (`.py`, `.sh`, `.R`,
+///     `.pl`, `.js`, `.ts`), OR contains a `/` and the basename has an
+///     extension (so `data/` and `genie/sample` aren't rewritten).
 fn rewrite_relative_script_paths(argv: &mut [String], image_workdir: &str) {
     const SCRIPT_EXTS: &[&str] = &[".py", ".sh", ".R", ".pl", ".js", ".ts"];
     let wd = image_workdir.trim_end_matches('/');
     for token in argv.iter_mut() {
-        if token.starts_with('/') {
+        if token.is_empty() {
             continue;
         }
-        let looks_like_script = token.contains('/')
-            || SCRIPT_EXTS.iter().any(|ext| token.ends_with(ext));
-        if looks_like_script {
+        if token.starts_with('-') || token.starts_with('/') {
+            continue;
+        }
+        if token.contains('=') || token.contains(':') {
+            continue;
+        }
+        let ends_with_script_ext = SCRIPT_EXTS.iter().any(|ext| token.ends_with(ext));
+        let basename_has_ext = token.contains('/') && {
+            let base = token.rsplit('/').next().unwrap_or("");
+            base.rsplit_once('.')
+                .is_some_and(|(stem, ext)| !stem.is_empty() && !ext.is_empty())
+        };
+        if ends_with_script_ext || basename_has_ext {
             *token = format!("{wd}/{token}");
         }
     }
@@ -1079,5 +1094,78 @@ mod tests {
         rewrite_relative_script_paths(&mut a, "/app");
         rewrite_relative_script_paths(&mut a, "/app");
         assert_eq!(a, argv(&["python", "/app/x.py"]));
+    }
+
+    #[test]
+    fn does_not_rewrite_flag_with_value() {
+        let mut a = argv(&["python", "train.py", "--config=cfg/x.yaml"]);
+        rewrite_relative_script_paths(&mut a, "/app");
+        assert_eq!(
+            a,
+            argv(&["python", "/app/train.py", "--config=cfg/x.yaml"])
+        );
+    }
+
+    #[test]
+    fn does_not_rewrite_url_like_token() {
+        let mut a = argv(&["aws", "s3", "cp", "s3://bucket/key", "out"]);
+        rewrite_relative_script_paths(&mut a, "/app");
+        assert_eq!(a, argv(&["aws", "s3", "cp", "s3://bucket/key", "out"]));
+    }
+
+    #[test]
+    fn does_not_rewrite_https_url() {
+        let mut a = argv(&["curl", "https://example.com/x"]);
+        rewrite_relative_script_paths(&mut a, "/app");
+        assert_eq!(a, argv(&["curl", "https://example.com/x"]));
+    }
+
+    #[test]
+    fn does_not_rewrite_env_style_var() {
+        let mut a = argv(&["VAR=val/x", "python", "train.py"]);
+        rewrite_relative_script_paths(&mut a, "/app");
+        assert_eq!(a, argv(&["VAR=val/x", "python", "/app/train.py"]));
+    }
+
+    #[test]
+    fn does_not_rewrite_flag_starting_with_dash() {
+        let mut a = argv(&["python", "train.py", "--num-gpus=4"]);
+        rewrite_relative_script_paths(&mut a, "/app");
+        assert_eq!(a, argv(&["python", "/app/train.py", "--num-gpus=4"]));
+    }
+
+    #[test]
+    fn does_not_rewrite_data_dir_with_trailing_slash() {
+        let mut a = argv(&["train", "--data-dir=data/"]);
+        rewrite_relative_script_paths(&mut a, "/app");
+        assert_eq!(a, argv(&["train", "--data-dir=data/"]));
+    }
+
+    #[test]
+    fn rewrites_relative_script_with_subpath() {
+        let mut a = argv(&["python", "genie/train.py"]);
+        rewrite_relative_script_paths(&mut a, "/app");
+        assert_eq!(a, argv(&["python", "/app/genie/train.py"]));
+    }
+
+    #[test]
+    fn rewrites_bare_setup_sh() {
+        let mut a = argv(&["setup.sh"]);
+        rewrite_relative_script_paths(&mut a, "/app");
+        assert_eq!(a, argv(&["/app/setup.sh"]));
+    }
+
+    #[test]
+    fn does_not_rewrite_plain_command_python() {
+        let mut a = argv(&["python"]);
+        rewrite_relative_script_paths(&mut a, "/app");
+        assert_eq!(a, argv(&["python"]));
+    }
+
+    #[test]
+    fn does_not_rewrite_absolute_script_path() {
+        let mut a = argv(&["/abs/path.py"]);
+        rewrite_relative_script_paths(&mut a, "/app");
+        assert_eq!(a, argv(&["/abs/path.py"]));
     }
 }

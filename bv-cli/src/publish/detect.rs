@@ -134,7 +134,10 @@ fn conda_dockerfile(env_file: &str) -> String {
 }
 
 fn pyproject_dockerfile() -> String {
-    "FROM python:3.11-slim\n\
+    "FROM python:3.11-slim-bookworm\n\
+     RUN apt-get update && apt-get install -y --no-install-recommends \\\n\
+         build-essential libssl-dev libffi-dev pkg-config && \\\n\
+         rm -rf /var/lib/apt/lists/*\n\
      WORKDIR /app\n\
      COPY pyproject.toml .\n\
      COPY . .\n\
@@ -144,7 +147,10 @@ fn pyproject_dockerfile() -> String {
 }
 
 fn requirements_dockerfile() -> String {
-    "FROM python:3.11-slim\n\
+    "FROM python:3.11-slim-bookworm\n\
+     RUN apt-get update && apt-get install -y --no-install-recommends \\\n\
+         build-essential libssl-dev libffi-dev pkg-config && \\\n\
+         rm -rf /var/lib/apt/lists/*\n\
      WORKDIR /app\n\
      COPY requirements.txt .\n\
      RUN pip install --no-cache-dir -r requirements.txt\n\
@@ -180,4 +186,29 @@ fn makefile_dockerfile() -> String {
      RUN make\n\
      WORKDIR /workspace\n"
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pyproject_dockerfile_has_build_essentials() {
+        let df = pyproject_dockerfile();
+        assert!(df.contains("build-essential"));
+        assert!(df.contains("libssl-dev"));
+        assert!(df.contains("libffi-dev"));
+        assert!(df.contains("pkg-config"));
+        assert!(df.contains("rm -rf /var/lib/apt/lists/*"));
+    }
+
+    #[test]
+    fn requirements_dockerfile_has_build_essentials() {
+        let df = requirements_dockerfile();
+        assert!(df.contains("build-essential"));
+        assert!(df.contains("libssl-dev"));
+        assert!(df.contains("libffi-dev"));
+        assert!(df.contains("pkg-config"));
+        assert!(df.contains("rm -rf /var/lib/apt/lists/*"));
+    }
 }

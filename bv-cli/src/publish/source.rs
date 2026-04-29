@@ -101,18 +101,53 @@ impl Source {
                 let dest = tmp.path().join("repo");
                 let clone_url = format!("https://github.com/{}/{}", owner, repo);
 
-                let mut cmd = std::process::Command::new("git");
-                cmd.args(["clone", "--depth", "1"]);
-                if let Some(ref r) = git_ref {
-                    cmd.args(["--branch", r]);
-                }
-                cmd.arg(&clone_url).arg(&dest);
+                // `git clone --branch` only accepts branch and tag names, not
+                // commit SHAs. Detect SHA-shaped refs and fetch them by
+                // object id instead.
+                let is_sha = git_ref.as_deref().is_some_and(looks_like_sha);
+                if is_sha {
+                    let sha = git_ref.as_deref().unwrap();
+                    let status = std::process::Command::new("git")
+                        .args(["clone", "--filter=blob:none", "--no-checkout"])
+                        .arg(&clone_url)
+                        .arg(&dest)
+                        .status()
+                        .context("'git clone' failed; is git installed?")?;
+                    if !status.success() {
+                        anyhow::bail!("failed to clone {}", clone_url);
+                    }
+                    let status = std::process::Command::new("git")
+                        .args(["-C"])
+                        .arg(&dest)
+                        .args(["fetch", "--depth", "1", "origin", sha])
+                        .status()
+                        .context("'git fetch' failed")?;
+                    if !status.success() {
+                        anyhow::bail!("failed to fetch commit {} from {}", sha, clone_url);
+                    }
+                    let status = std::process::Command::new("git")
+                        .args(["-C"])
+                        .arg(&dest)
+                        .args(["checkout", "FETCH_HEAD"])
+                        .status()
+                        .context("'git checkout' failed")?;
+                    if !status.success() {
+                        anyhow::bail!("failed to checkout {} in {}", sha, dest.display());
+                    }
+                } else {
+                    let mut cmd = std::process::Command::new("git");
+                    cmd.args(["clone", "--depth", "1"]);
+                    if let Some(ref r) = git_ref {
+                        cmd.args(["--branch", r]);
+                    }
+                    cmd.arg(&clone_url).arg(&dest);
 
-                let status = cmd
-                    .status()
-                    .context("'git clone' failed; is git installed?")?;
-                if !status.success() {
-                    anyhow::bail!("failed to clone {}", clone_url);
+                    let status = cmd
+                        .status()
+                        .context("'git clone' failed; is git installed?")?;
+                    if !status.success() {
+                        anyhow::bail!("failed to clone {}", clone_url);
+                    }
                 }
 
                 let version_hint = git_ref
@@ -132,6 +167,17 @@ impl Source {
     }
 }
 
+/// Heuristic for "this ref is a commit SHA, not a branch or tag".
+///
+/// Matches anything 7-40 chars long that's all hex. This is the same range
+/// `git` itself accepts for short SHAs. False positives (a branch literally
+/// named `abcdef0`) are vanishingly rare and would still work via the SHA
+/// fetch path.
+fn looks_like_sha(s: &str) -> bool {
+    let len = s.len();
+    (7..=40).contains(&len) && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 fn git_latest_tag(dir: &Path) -> Option<String> {
     let out = std::process::Command::new("git")
         .args([
@@ -148,5 +194,56 @@ fn git_latest_tag(dir: &Path) -> Option<String> {
         Some(tag.trim_start_matches('v').to_string())
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_length_sha_is_sha() {
+        assert!(looks_like_sha("0123456789abcdef0123456789abcdef01234567"));
+    }
+
+    #[test]
+    fn short_sha_is_sha() {
+        assert!(looks_like_sha("abc1234"));
+        assert!(looks_like_sha("3146136"));
+    }
+
+    #[test]
+    fn branch_names_are_not_sha() {
+        assert!(!looks_like_sha("main"));
+        assert!(!looks_like_sha("master"));
+        assert!(!looks_like_sha("release/1.0"));
+        assert!(!looks_like_sha("feature-x"));
+    }
+
+    #[test]
+    fn version_tags_are_not_sha() {
+        assert!(!looks_like_sha("v1.2.3"));
+        assert!(!looks_like_sha("1.2.3"));
+    }
+
+    #[test]
+    fn too_short_is_not_sha() {
+        assert!(!looks_like_sha(""));
+        assert!(!looks_like_sha("abc"));
+        assert!(!looks_like_sha("abcdef"));
+    }
+
+    #[test]
+    fn too_long_is_not_sha() {
+        // 41 hex chars
+        assert!(!looks_like_sha(
+            "0123456789abcdef0123456789abcdef0123456789a"
+        ));
+    }
+
+    #[test]
+    fn non_hex_is_not_sha() {
+        assert!(!looks_like_sha("ghijklm"));
+        assert!(!looks_like_sha("abc1234x"));
     }
 }
