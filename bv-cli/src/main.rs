@@ -54,6 +54,7 @@ async fn main() -> anyhow::Result<()> {
             skip_gpu,
             skip_reference_data,
             skip_deprecated,
+            jobs,
         } => match tool {
             Some(t) => commands::conform::run(t, registry.as_deref(), backend.as_deref()).await,
             None => {
@@ -64,6 +65,7 @@ async fn main() -> anyhow::Result<()> {
                     *skip_gpu,
                     *skip_reference_data,
                     *skip_deprecated,
+                    *jobs,
                 )
                 .await
             }

@@ -66,6 +66,11 @@ pub enum Commands {
         /// In walk mode: skip tools marked `deprecated = true` in their manifest.
         #[arg(long)]
         skip_deprecated: bool,
+        /// In walk mode: number of tools to check concurrently. Each runs in
+        /// its own blocking task; gated by a semaphore. Tune up on machines
+        /// with fast network + plenty of disk (8xH100 boxes love `--jobs 16`).
+        #[arg(long, default_value = "4")]
+        jobs: usize,
     },
 
     /// Search the registry for tools.

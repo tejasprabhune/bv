@@ -1,6 +1,10 @@
+use std::sync::Arc;
+
 use anyhow::Context;
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use owo_colors::{OwoColorize, Stream};
 use semver::VersionReq;
+use tokio::sync::Semaphore;
 
 use bv_core::cache::CacheLayout;
 use bv_core::manifest::Manifest;
@@ -110,6 +114,7 @@ pub async fn run_all(
     skip_gpu: bool,
     skip_reference_data: bool,
     skip_deprecated: bool,
+    jobs: usize,
 ) -> anyhow::Result<()> {
     let cache = CacheLayout::new();
     let registry_url = resolve_registry_url(registry_flag, None);
@@ -128,41 +133,88 @@ pub async fn run_all(
         tools.retain(|t| t.id.contains(f));
     }
 
+    let jobs = jobs.max(1);
     eprintln!(
-        "  {} {} tool(s) from {}\n",
+        "  {} {} tool(s) from {}  (jobs: {})\n",
         "Conformance walk:".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string()),
         tools.len(),
-        registry_url
+        registry_url,
+        jobs,
     );
 
-    let started = std::time::Instant::now();
-    let mut results: Vec<(String, String, Outcome)> = Vec::with_capacity(tools.len());
-
+    // Pre-load manifests sequentially. Index access is synchronous and
+    // shared; doing it under the semaphore would needlessly serialize.
+    // Keeps a stable per-tool record even when manifest load itself fails.
+    let mut prepared: Vec<(String, String, Result<Manifest, String>)> =
+        Vec::with_capacity(tools.len());
     for summary in &tools {
-        let manifest = match index.get_manifest(&summary.id, &VersionReq::STAR) {
-            Ok(m) => m,
+        match index.get_manifest(&summary.id, &VersionReq::STAR) {
+            Ok(m) => {
+                let version = m.tool.version.clone();
+                prepared.push((summary.id.clone(), version, Ok(m)));
+            }
             Err(e) => {
-                results.push((
-                    summary.id.clone(),
-                    "?".into(),
-                    Outcome::Error(format!("manifest load: {e}")),
-                ));
+                prepared.push((summary.id.clone(), "?".into(), Err(e.to_string())));
+            }
+        }
+    }
+
+    let started = std::time::Instant::now();
+    let sem = Arc::new(Semaphore::new(jobs));
+    let mut tasks: FuturesUnordered<tokio::task::JoinHandle<(String, String, Outcome)>> =
+        FuturesUnordered::new();
+
+    for (id, version, manifest_res) in prepared {
+        let sem = sem.clone();
+        let runtime = runtime.clone();
+        tasks.push(tokio::spawn(async move {
+            let permit = match sem.acquire_owned().await {
+                Ok(p) => p,
+                Err(_) => return (id, version, Outcome::Error("semaphore closed".into())),
+            };
+            let manifest = match manifest_res {
+                Ok(m) => m,
+                Err(e) => {
+                    return (id, version, Outcome::Error(format!("manifest load: {e}")));
+                }
+            };
+            let outcome = if skip_deprecated && manifest.tool.deprecated {
+                Outcome::Skipped("deprecated")
+            } else if skip_gpu && requires_gpu(&manifest) {
+                Outcome::Skipped("requires GPU")
+            } else if skip_reference_data && requires_reference_data(&manifest) {
+                Outcome::Skipped("requires reference data")
+            } else {
+                eprintln!(
+                    "  {} {}@{}",
+                    "==>".if_supports_color(Stream::Stderr, |t| t.cyan().to_string()),
+                    id,
+                    version
+                );
+                let result = tokio::task::spawn_blocking(move || {
+                    run_one(&manifest, &runtime, /*verbose=*/ false)
+                })
+                .await;
+                drop(permit);
+                match result {
+                    Ok(o) => o,
+                    Err(e) => Outcome::Error(format!("task panic for {id}@{version}: {e}")),
+                }
+            };
+            (id, version, outcome)
+        }));
+    }
+
+    let mut results: Vec<(String, String, Outcome)> = Vec::with_capacity(tasks.len());
+    while let Some(joined) = tasks.next().await {
+        let (id, version, outcome) = match joined {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("  task join error: {e}");
                 continue;
             }
         };
-        let version = manifest.tool.version.clone();
-
-        let outcome = if skip_deprecated && manifest.tool.deprecated {
-            Outcome::Skipped("deprecated")
-        } else if skip_gpu && requires_gpu(&manifest) {
-            Outcome::Skipped("requires GPU")
-        } else if skip_reference_data && requires_reference_data(&manifest) {
-            Outcome::Skipped("requires reference data")
-        } else {
-            run_one(&manifest, &runtime, /*verbose=*/ false)
-        };
-
-        eprintln!("  {}  {}@{}", outcome.colored(), summary.id, version);
+        eprintln!("  {}  {}@{}", outcome.colored(), id, version);
         if let Outcome::Fail { messages, .. } = &outcome {
             for m in messages {
                 eprintln!("        {m}");
@@ -171,9 +223,11 @@ pub async fn run_all(
         if let Outcome::Error(msg) = &outcome {
             eprintln!("        {msg}");
         }
-        results.push((summary.id.clone(), version, outcome));
+        results.push((id, version, outcome));
     }
 
+    // Restore alphabetical order for the summary table.
+    results.sort_by(|a, b| a.0.cmp(&b.0));
     print_summary(&results, started.elapsed());
 
     let any_fail = results
