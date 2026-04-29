@@ -282,10 +282,26 @@ pub enum DataCommands {
 
 #[derive(Subcommand)]
 pub enum CacheCommands {
-    /// List (and optionally remove) images not referenced by any bv.lock.
+    /// Show cache footprint broken down by category.
+    Size,
+
+    /// List entries in the bv-managed cache.
+    List,
+
+    /// Remove cache entries not reachable from any known lockfile.
     Prune {
-        /// Actually remove images (default: dry run).
+        /// Print what would be removed without removing it.
         #[arg(long)]
-        apply: bool,
+        dry_run: bool,
+        /// Skip the confirmation prompt.
+        #[arg(long, short = 'y')]
+        yes: bool,
+        /// Remove every bv-managed entry (still skips files bv does not own).
+        #[arg(long)]
+        all: bool,
+        /// Keep the most recently used N versions of each tool. Defaults to keeping
+        /// only entries reachable from the discovered lockfiles.
+        #[arg(long)]
+        keep_recent: Option<usize>,
     },
 }

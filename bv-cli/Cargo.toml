@@ -41,6 +41,7 @@ inquire = "0.9.4"
 
 [dev-dependencies]
 insta = "1.47.2"
+filetime = "0.2"
 
 [dependencies.keyring]
 version = "3"

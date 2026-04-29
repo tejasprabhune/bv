@@ -103,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
         } => commands::sync::run(*frozen, registry.as_deref(), backend.as_deref()).await,
         Commands::Doctor => commands::doctor::run(),
         Commands::Data(dc) => commands::data_cmd(dc).await,
-        Commands::Cache(cache_cmd) => commands::cache(cache_cmd),
+        Commands::Cache(cache_cmd) => commands::cache_cmd(cache_cmd),
         Commands::Publish {
             source,
             tool_name,
