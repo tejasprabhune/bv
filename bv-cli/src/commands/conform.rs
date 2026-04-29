@@ -11,7 +11,7 @@ use bv_core::manifest::Manifest;
 use bv_index::IndexBackend as _;
 use bv_runtime::ContainerRuntime as _;
 
-use crate::registry::{open_index, resolve_registry_url};
+use crate::registry::{STALE_TTL, maybe_print_refresh, open_index, resolve_registry_url};
 
 enum Outcome {
     Pass(std::time::Duration),
@@ -60,7 +60,10 @@ pub async fn run(
     let registry_url = resolve_registry_url(registry_flag, None);
     let index = open_index(&registry_url, &cache);
 
-    index.refresh().context("registry refresh failed")?;
+    let refreshed = index
+        .refresh_if_stale(STALE_TTL)
+        .context("registry refresh failed")?;
+    maybe_print_refresh(refreshed);
 
     let manifest = index
         .get_manifest(tool, &VersionReq::STAR)
@@ -120,7 +123,10 @@ pub async fn run_all(
     let registry_url = resolve_registry_url(registry_flag, None);
     let index = open_index(&registry_url, &cache);
 
-    index.refresh().context("registry refresh failed")?;
+    let refreshed = index
+        .refresh_if_stale(STALE_TTL)
+        .context("registry refresh failed")?;
+    maybe_print_refresh(refreshed);
 
     let runtime = crate::runtime_select::resolve_runtime(backend_flag, None)?;
     runtime

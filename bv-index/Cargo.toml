@@ -12,3 +12,8 @@ bv-core = { version = "0.1.0", path = "../bv-core" }
 semver = { version = "1.0.28", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.18"
+tracing = "0.1.44"
+
+[dev-dependencies]
+tempfile = "3.10"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

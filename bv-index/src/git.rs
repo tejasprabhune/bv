@@ -164,15 +164,27 @@ impl IndexBackend for GitIndex {
         }
 
         let mut versions = Vec::new();
+        let mut dropped: Vec<String> = Vec::new();
         for entry in fs::read_dir(&tool_dir)? {
             let entry = entry?;
             let path = entry.path();
             if path.extension().is_some_and(|e| e == "toml")
                 && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-                && let Ok(v) = stem.parse::<Version>()
             {
-                versions.push(v);
+                match stem.parse::<Version>() {
+                    Ok(v) => versions.push(v),
+                    Err(_) => dropped.push(stem.to_string()),
+                }
             }
+        }
+
+        if !dropped.is_empty() {
+            tracing::warn!(
+                tool = %tool,
+                dropped = ?dropped,
+                "ignoring tool manifest files with non-semver names (expected MAJOR.MINOR.PATCH; \
+                 calver like 2024.01.0 is not valid semver)"
+            );
         }
 
         versions.sort();
@@ -280,15 +292,30 @@ impl IndexBackend for GitIndex {
         }
 
         let mut versions = Vec::new();
+        let mut dropped: Vec<String> = Vec::new();
         for entry in fs::read_dir(&data_dir)? {
             let entry = entry?;
             let path = entry.path();
             if path.extension().is_some_and(|e| e == "toml")
                 && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
             {
-                versions.push(stem.to_string());
+                if stem.parse::<Version>().is_ok() {
+                    versions.push(stem.to_string());
+                } else {
+                    dropped.push(stem.to_string());
+                }
             }
         }
+
+        if !dropped.is_empty() {
+            tracing::warn!(
+                dataset = %dataset,
+                dropped = ?dropped,
+                "ignoring dataset manifest files with non-semver names (expected MAJOR.MINOR.PATCH; \
+                 calver like 2024.01.0 is not valid semver)"
+            );
+        }
+
         versions.sort();
         Ok(versions)
     }
@@ -310,5 +337,41 @@ impl IndexBackend for GitIndex {
         }
         ids.sort();
         Ok(ids)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn list_versions_returns_only_valid_semver() {
+        let tmp = tempdir().unwrap();
+        let tool_dir = tmp.path().join("tools").join("tmalign");
+        fs::create_dir_all(&tool_dir).unwrap();
+        fs::write(tool_dir.join("1.2.3.toml"), "").unwrap();
+        fs::write(tool_dir.join("20240303.toml"), "").unwrap();
+        fs::write(tool_dir.join("2024.01.0.toml"), "").unwrap();
+
+        let index = GitIndex::new("unused", tmp.path().to_path_buf());
+        let versions = index.list_versions("tmalign").unwrap();
+
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0], Version::new(1, 2, 3));
+    }
+
+    #[test]
+    fn list_data_versions_returns_only_valid_semver() {
+        let tmp = tempdir().unwrap();
+        let data_dir = tmp.path().join("data").join("uniref50");
+        fs::create_dir_all(&data_dir).unwrap();
+        fs::write(data_dir.join("0.1.0.toml"), "").unwrap();
+        fs::write(data_dir.join("2024.01.0.toml"), "").unwrap();
+
+        let index = GitIndex::new("unused", tmp.path().to_path_buf());
+        let versions = index.list_data_versions("uniref50").unwrap();
+
+        assert_eq!(versions, vec!["0.1.0".to_string()]);
     }
 }
