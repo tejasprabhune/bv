@@ -160,6 +160,7 @@ pub fn from_config(
     fetched: &FetchedSource,
     name_override: Option<&str>,
     version_override: Option<&str>,
+    image_workdir: Option<&str>,
 ) -> anyhow::Result<ScaffoldResult> {
     let meta = config.map(|c| &c.publish);
 
@@ -185,7 +186,12 @@ pub fn from_config(
     let inputs = parse_io_specs(&m.inputs).context("inputs")?;
     let outputs = parse_io_specs(&m.outputs).context("outputs")?;
 
-    let subcommands = parse_subcommand_strings(&m.subcommands)?;
+    let mut subcommands = parse_subcommand_strings(&m.subcommands)?;
+    if let Some(wd) = image_workdir {
+        for argv in subcommands.values_mut() {
+            rewrite_relative_script_paths(argv, wd);
+        }
+    }
     let entrypoint_command = m.entrypoint.command.clone().unwrap_or_default();
     if entrypoint_command.is_empty() && subcommands.is_empty() {
         anyhow::bail!(
@@ -409,6 +415,7 @@ pub fn interactive(
     fetched: &FetchedSource,
     name_override: Option<&str>,
     version_override: Option<&str>,
+    image_workdir: Option<&str>,
 ) -> anyhow::Result<ScaffoldResult> {
     let meta = config.map(|c| &c.publish);
     let mut form = Form::from_defaults(meta, fetched, name_override, version_override)?;
@@ -422,14 +429,24 @@ pub fn interactive(
 
         match choice.action {
             Action::Confirm => match form.validate() {
-                Ok(()) => return Ok(form.into_result()),
+                Ok(()) => {
+                    // Safety net: rewrite any subcommand argv that was carried
+                    // over from bv-publish.toml without re-edit. Idempotent
+                    // (already-absolute paths are skipped).
+                    if let Some(wd) = image_workdir {
+                        for argv in form.subcommands.values_mut() {
+                            rewrite_relative_script_paths(argv, wd);
+                        }
+                    }
+                    return Ok(form.into_result());
+                }
                 Err(msg) => eprintln!(
                     "  {} {msg}",
                     "error:".if_supports_color(Stream::Stderr, |t| t.red().bold().to_string())
                 ),
             },
             Action::Cancel => anyhow::bail!("publish cancelled"),
-            Action::Edit(field) => edit_field(&mut form, field)?,
+            Action::Edit(field) => edit_field(&mut form, field, image_workdir)?,
         }
     }
 }
@@ -578,7 +595,7 @@ fn build_menu(form: &Form) -> Vec<MenuItem> {
     ]
 }
 
-fn edit_field(form: &mut Form, field: Field) -> anyhow::Result<()> {
+fn edit_field(form: &mut Form, field: Field, image_workdir: Option<&str>) -> anyhow::Result<()> {
     match field {
         Field::Name => form.name = text("Tool name", &form.name, false)?,
         Field::Version => form.version = text("Version", &form.version, false)?,
@@ -596,7 +613,7 @@ fn edit_field(form: &mut Form, field: Field) -> anyhow::Result<()> {
         Field::Inputs => edit_io_list(&mut form.inputs, "input")?,
         Field::Outputs => edit_io_list(&mut form.outputs, "output")?,
         Field::Entrypoint => edit_entrypoint(form)?,
-        Field::Subcommands => edit_subcommands(&mut form.subcommands)?,
+        Field::Subcommands => edit_subcommands(&mut form.subcommands, image_workdir)?,
     }
     Ok(())
 }
@@ -789,7 +806,17 @@ fn prompt_io_spec(label: &str, existing: Option<&IoSpec>) -> anyhow::Result<IoSp
     })
 }
 
-fn edit_subcommands(subs: &mut HashMap<String, Vec<String>>) -> anyhow::Result<()> {
+fn edit_subcommands(
+    subs: &mut HashMap<String, Vec<String>>,
+    image_workdir: Option<&str>,
+) -> anyhow::Result<()> {
+    if let Some(wd) = image_workdir {
+        eprintln!(
+            "  {} subcommand script paths are inside the image; relative paths \
+             will be resolved against the image's source dir ({wd})",
+            "note:".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string())
+        );
+    }
     loop {
         #[derive(Debug, Clone)]
         struct Row {
@@ -840,12 +867,12 @@ fn edit_subcommands(subs: &mut HashMap<String, Vec<String>>) -> anyhow::Result<(
         match pick.kind {
             SubKind::Done => return Ok(()),
             SubKind::Add => {
-                let (n, argv) = prompt_subcommand("", &[])?;
+                let (n, argv) = prompt_subcommand("", &[], image_workdir)?;
                 subs.insert(n, argv);
             }
             SubKind::Edit(name) => {
                 let existing = subs.get(&name).cloned().unwrap_or_default();
-                let (new_name, argv) = prompt_subcommand(&name, &existing)?;
+                let (new_name, argv) = prompt_subcommand(&name, &existing, image_workdir)?;
                 if new_name != name {
                     subs.remove(&name);
                 }
@@ -861,6 +888,7 @@ fn edit_subcommands(subs: &mut HashMap<String, Vec<String>>) -> anyhow::Result<(
 fn prompt_subcommand(
     initial_name: &str,
     initial_cmd: &[String],
+    image_workdir: Option<&str>,
 ) -> anyhow::Result<(String, Vec<String>)> {
     let name = Text::new("Subcommand name")
         .with_help_message("e.g. train, sample_unconditional")
@@ -870,15 +898,43 @@ fn prompt_subcommand(
         anyhow::bail!("name must be non-empty and not start with '-'");
     }
     let initial_cmd_str = initial_cmd.join(" ");
+    let help = match image_workdir {
+        Some(wd) => format!("e.g. python genie/train.py (resolved against {wd})"),
+        None => "e.g. python genie/train.py".to_string(),
+    };
     let cmd_str = Text::new("Command")
-        .with_help_message("e.g. python genie/train.py")
+        .with_help_message(&help)
         .with_initial_value(&initial_cmd_str)
         .prompt()?;
-    let argv = shell_split(&cmd_str)?;
+    let mut argv = shell_split(&cmd_str)?;
     if argv.is_empty() {
         anyhow::bail!("command must not be empty");
     }
+    if let Some(wd) = image_workdir {
+        rewrite_relative_script_paths(&mut argv, wd);
+    }
     Ok((name, argv))
+}
+
+/// Rewrite tokens that look like relative script paths to be image-absolute.
+///
+/// A token is rewritten when it: (1) doesn't already start with `/`, and
+/// (2) contains a `/` or ends with a script-like extension (`.py`, `.sh`,
+/// `.R`, `.pl`, `.js`, `.ts`). Other tokens (flags, env vars, command names
+/// like `python`) are left alone.
+fn rewrite_relative_script_paths(argv: &mut [String], image_workdir: &str) {
+    const SCRIPT_EXTS: &[&str] = &[".py", ".sh", ".R", ".pl", ".js", ".ts"];
+    let wd = image_workdir.trim_end_matches('/');
+    for token in argv.iter_mut() {
+        if token.starts_with('/') {
+            continue;
+        }
+        let looks_like_script = token.contains('/')
+            || SCRIPT_EXTS.iter().any(|ext| token.ends_with(ext));
+        if looks_like_script {
+            *token = format!("{wd}/{token}");
+        }
+    }
 }
 
 const CUSTOM_TYPE_OPTION: &str = "(custom or parametric type, e.g. fasta[alphabet=dna]…)";
@@ -978,4 +1034,50 @@ fn parse_io_specs(metas: &[IoMeta]) -> anyhow::Result<Vec<IoSpec>> {
 
 fn non_empty(s: String) -> Option<String> {
     if s.is_empty() { None } else { Some(s) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn argv(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn rewrites_relative_script_paths() {
+        let mut a = argv(&["python", "genie/train.py"]);
+        rewrite_relative_script_paths(&mut a, "/app/genie2");
+        assert_eq!(a, argv(&["python", "/app/genie2/genie/train.py"]));
+    }
+
+    #[test]
+    fn leaves_absolute_paths_alone() {
+        let mut a = argv(&["python", "/usr/local/bin/run.py"]);
+        rewrite_relative_script_paths(&mut a, "/app");
+        assert_eq!(a, argv(&["python", "/usr/local/bin/run.py"]));
+    }
+
+    #[test]
+    fn leaves_command_names_alone() {
+        let mut a = argv(&["python", "-m", "scripts.train"]);
+        rewrite_relative_script_paths(&mut a, "/app");
+        // -m and dotted module path don't look like file paths.
+        assert_eq!(a, argv(&["python", "-m", "scripts.train"]));
+    }
+
+    #[test]
+    fn rewrites_bare_script_filename() {
+        let mut a = argv(&["bash", "setup.sh"]);
+        rewrite_relative_script_paths(&mut a, "/app");
+        assert_eq!(a, argv(&["bash", "/app/setup.sh"]));
+    }
+
+    #[test]
+    fn idempotent_when_already_absolute() {
+        let mut a = argv(&["python", "/app/x.py"]);
+        rewrite_relative_script_paths(&mut a, "/app");
+        rewrite_relative_script_paths(&mut a, "/app");
+        assert_eq!(a, argv(&["python", "/app/x.py"]));
+    }
 }

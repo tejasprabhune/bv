@@ -51,6 +51,12 @@ pub async fn run(opts: PublishOpts) -> anyhow::Result<()> {
     // Load bv-publish.toml if present.
     let config = scaffold::load_publish_config(&fetched.dir);
 
+    // Generate the Dockerfile up-front so we know where the source lives
+    // inside the image. The interactive flow needs that path to auto-prefix
+    // subcommand argv (e.g. `python genie/train.py` -> `/app/genie2/genie/train.py`).
+    let dockerfile = detect::ensure_dockerfile(&build_sys, &fetched.dir)?;
+    let image_workdir = detect::detect_image_workdir(&dockerfile);
+
     // Collect manifest metadata.
     let scaffold_result = if opts.non_interactive {
         scaffold::from_config(
@@ -58,6 +64,7 @@ pub async fn run(opts: PublishOpts) -> anyhow::Result<()> {
             &fetched,
             opts.tool_name.as_deref(),
             opts.version.as_deref(),
+            image_workdir.as_deref(),
         )?
     } else {
         scaffold::interactive(
@@ -65,11 +72,9 @@ pub async fn run(opts: PublishOpts) -> anyhow::Result<()> {
             &fetched,
             opts.tool_name.as_deref(),
             opts.version.as_deref(),
+            image_workdir.as_deref(),
         )?
     };
-
-    // Ensure a Dockerfile exists (generating one if needed).
-    let dockerfile = detect::ensure_dockerfile(&build_sys, &fetched.dir)?;
 
     eprintln!();
 

@@ -91,6 +91,30 @@ pub fn ensure_dockerfile(sys: &BuildSystem, dir: &Path) -> anyhow::Result<PathBu
     Ok(path)
 }
 
+/// Return the directory where the upstream source lives inside the built image.
+/// Scans every `WORKDIR` directive in the Dockerfile and returns the last one
+/// that isn't `/workspace` (which our scaffolds use for runtime cwd).
+///
+/// Returns `None` if the Dockerfile can't be read or has no usable WORKDIR.
+pub fn detect_image_workdir(dockerfile_path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(dockerfile_path).ok()?;
+    let mut last_build_dir: Option<String> = None;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        // Strip the WORKDIR keyword (case-insensitive).
+        let rest = trimmed
+            .strip_prefix("WORKDIR ")
+            .or_else(|| trimmed.strip_prefix("workdir "));
+        let Some(value) = rest else { continue };
+        let value = value.trim();
+        if value == "/workspace" || value.is_empty() {
+            continue;
+        }
+        last_build_dir = Some(value.to_string());
+    }
+    last_build_dir
+}
+
 fn has_build_system(dir: &Path) -> bool {
     let Ok(content) = std::fs::read_to_string(dir.join("pyproject.toml")) else {
         return false;

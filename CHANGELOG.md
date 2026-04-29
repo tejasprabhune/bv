@@ -2,6 +2,12 @@
 
 All notable changes to `bv` are documented here. Follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.14] - 2026-04-29
+
+### Changed
+
+- `bv publish` auto-prefixes relative script paths in `[tool.subcommands]` with the image's `WORKDIR`. Previously, a contributor entering `python genie/train.py` produced a manifest whose argv resolved to `/workspace/genie/train.py` (the host PWD mount) instead of the actual source location inside the image. The flow now reads the (possibly auto-generated) Dockerfile, picks the last non-`/workspace` `WORKDIR` directive, and rewrites argv tokens that look like script paths (contain `/`, or end in `.py`/`.sh`/`.R`/`.pl`/`.js`/`.ts`) to be image-absolute. Already-absolute paths, command names like `python`, flags, and dotted module paths (`scripts.train`) are left alone. Applies to both the interactive prompt and `bv-publish.toml` non-interactive flow.
+
 ## [0.1.13] - 2026-04-29
 
 ### Fixed
