@@ -2,6 +2,17 @@
 
 All notable changes to `bv` are documented here. Follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.16] - 2026-04-29
+
+### Added
+
+- **`bv exec` auto-syncs before running** (uv-run-style). Before exec, `bv exec` checks four conditions in order: (a) `bv.lock` missing → fail with the existing helpful error; (b) `bv.toml` mtime newer than `bv.lock` → re-run lock + sync, prints an `Updating` line; (c) any tool's image not locally available → run sync; (d) `.bv/bin/` missing or empty → write shims. Then exec. The fast path (no work needed) is silent. Pass `--no-sync` (or set `BV_EXEC_NO_SYNC=1`) to skip the auto-sync entirely for tight inner loops.
+- **`bv cache size`** prints the cache footprint by category (manifests, indexes, SIFs, datasets, tmp) with a spinner during the walk.
+- **`bv cache list`** prints a flat inventory of cached SIFs, tool manifests, index clones, and datasets, sorted by category.
+- **`bv cache prune` is now real** (not a stub). Walks the bv cache and removes entries unreachable from any known `bv.lock`. Reachability = digests + `(tool_id, version)` pairs collected from `$PWD/bv.lock` plus any `bv.lock` found under directories listed in `BV_KNOWN_PROJECTS` (colon-separated). Prunes orphan SIFs, orphan tool manifests, index clones older than 30 days (excluding `default`), and tmp entries older than 1 hour. Default mode prompts before removing; pass `--yes` to skip the prompt or `--dry-run` to preview. `--keep-recent N` keeps the N most recent unreachable versions per tool. `--all` ignores reachability and removes everything bv-managed.
+
+Docker images aren't auto-pruned (would require labeling at pull time); `bv cache prune` reminds the user to run `docker image prune` separately.
+
 ## [0.1.15] - 2026-04-29
 
 ### Fixed (correctness / data integrity)
