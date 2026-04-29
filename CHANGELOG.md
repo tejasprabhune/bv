@@ -2,6 +2,20 @@
 
 All notable changes to `bv` are documented here. Follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.12] - 2026-04-28
+
+### Added
+
+- `bv conformance` (no tool arg): walks every tool in the registry. Filters: `--filter <substr>`, `--skip-gpu`, `--skip-reference-data`, `--skip-deprecated`. Concurrent via `--jobs N` (default 4). Prints PASS/FAIL/ERR/SKIP per tool plus a summary table.
+- `bv data verify`: HEAD-checks every dataset's primary URL, compares declared `size_bytes` to server's `Content-Length` (configurable tolerance). Concurrent via `--jobs N` (default 8).
+- `RunSpec.capture_output`: when true, the runtime captures stdout/stderr instead of inheriting to the host. `bv-conformance` uses this so probe output doesn't flood the terminal during walks.
+
+### Changed
+
+- `bv-conformance` smoke check now counts a probe as alive if exit code is 0 OR ≥30 bytes of output were captured. Catches Unix-convention tools (bwa, seqtk, fasttree) that print help to stderr and exit non-zero on unknown args.
+- `DataEntry.sha256` and `DataEntry.size_bytes` are now `Option<>`. When `sha256` is absent, `bv data fetch` skips the integrity check; when `size_bytes` is absent, the progress bar uses the server's Content-Length.
+- `[tool.deprecated = true]` manifests are skipped (not failed) in walker mode when `--skip-deprecated` is passed.
+
 ## [0.1.11] - 2026-04-28
 
 ### Added
