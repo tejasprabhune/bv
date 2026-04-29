@@ -22,13 +22,41 @@ pub enum Source {
 
 impl Source {
     pub fn parse(spec: &str) -> anyhow::Result<Self> {
-        if let Some(rest) = spec.strip_prefix("github:") {
-            let (repo_part, git_ref) = rest
+        // Accept three GitHub forms:
+        //   github:owner/repo[@ref]
+        //   https://github.com/owner/repo[.git][/tree/<ref>]
+        //   git@github.com:owner/repo[.git]
+        let github_part = if let Some(rest) = spec.strip_prefix("github:") {
+            Some(rest.to_string())
+        } else if let Some(rest) = spec
+            .strip_prefix("https://github.com/")
+            .or_else(|| spec.strip_prefix("http://github.com/"))
+        {
+            // Strip trailing .git, /, or /tree/<ref>
+            let (path, ref_from_url) = if let Some((p, r)) = rest.split_once("/tree/") {
+                (p, Some(r.trim_end_matches('/').to_string()))
+            } else {
+                (rest.trim_end_matches('/'), None)
+            };
+            let path = path.trim_end_matches(".git");
+            Some(ref_from_url.map_or_else(|| path.to_string(), |r| format!("{path}@{r}")))
+        } else if let Some(rest) = spec.strip_prefix("git@github.com:") {
+            Some(rest.trim_end_matches(".git").to_string())
+        } else {
+            None
+        };
+
+        if let Some(gh) = github_part {
+            let (repo_part, git_ref) = gh
                 .split_once('@')
                 .map(|(rp, r)| (rp, Some(r.to_string())))
-                .unwrap_or((rest, None));
+                .unwrap_or((gh.as_str(), None));
             let (owner, repo) = repo_part.split_once('/').ok_or_else(|| {
-                anyhow::anyhow!("github source must be 'github:owner/repo', got '{}'", spec)
+                anyhow::anyhow!(
+                    "github source must look like 'github:owner/repo' or \
+                     'https://github.com/owner/repo', got '{}'",
+                    spec
+                )
             })?;
             Ok(Source::GitHub {
                 owner: owner.to_string(),
