@@ -63,6 +63,9 @@ pub enum Commands {
         /// In walk mode: skip tools that require reference data.
         #[arg(long)]
         skip_reference_data: bool,
+        /// In walk mode: skip tools marked `deprecated = true` in their manifest.
+        #[arg(long)]
+        skip_deprecated: bool,
     },
 
     /// Search the registry for tools.

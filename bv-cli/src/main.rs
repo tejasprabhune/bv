@@ -53,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
             filter,
             skip_gpu,
             skip_reference_data,
+            skip_deprecated,
         } => match tool {
             Some(t) => commands::conform::run(t, registry.as_deref(), backend.as_deref()).await,
             None => {
@@ -62,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
                     filter.as_deref(),
                     *skip_gpu,
                     *skip_reference_data,
+                    *skip_deprecated,
                 )
                 .await
             }

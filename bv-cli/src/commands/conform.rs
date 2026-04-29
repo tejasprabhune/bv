@@ -109,6 +109,7 @@ pub async fn run_all(
     filter: Option<&str>,
     skip_gpu: bool,
     skip_reference_data: bool,
+    skip_deprecated: bool,
 ) -> anyhow::Result<()> {
     let cache = CacheLayout::new();
     let registry_url = resolve_registry_url(registry_flag, None);
@@ -151,7 +152,9 @@ pub async fn run_all(
         };
         let version = manifest.tool.version.clone();
 
-        let outcome = if skip_gpu && requires_gpu(&manifest) {
+        let outcome = if skip_deprecated && manifest.tool.deprecated {
+            Outcome::Skipped("deprecated")
+        } else if skip_gpu && requires_gpu(&manifest) {
             Outcome::Skipped("requires GPU")
         } else if skip_reference_data && requires_reference_data(&manifest) {
             Outcome::Skipped("requires reference data")
