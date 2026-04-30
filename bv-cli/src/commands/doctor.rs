@@ -5,6 +5,7 @@ use owo_colors::{OwoColorize, Stream};
 
 use bv_core::cache::CacheLayout;
 use bv_core::hardware::DetectedHardware;
+use bv_core::lockfile::SpecKind;
 use bv_core::project::BvLock;
 use bv_runtime::{ContainerRuntime, DockerRuntime};
 use bv_runtime_apptainer::{ApptainerRuntime, is_available as apptainer_available};
@@ -201,6 +202,76 @@ pub fn run() -> anyhow::Result<()> {
                 .collect()
         };
         kv("bv.lock", &tools.join(", "));
+
+        // Factored image summary.
+        let total_tools = lockfile.tools.len();
+        let factored_count = lockfile
+            .tools
+            .values()
+            .filter(|e| matches!(e.spec_kind, SpecKind::FactoredOci))
+            .count();
+        let legacy_count = total_tools - factored_count;
+
+        if total_tools > 0 {
+            let total_layers: usize = lockfile
+                .tools
+                .values()
+                .filter(|e| matches!(e.spec_kind, SpecKind::FactoredOci))
+                .map(|e| e.layers.len())
+                .sum();
+
+            let unique_layer_count = {
+                let mut seen = std::collections::HashSet::new();
+                for entry in lockfile.tools.values() {
+                    if matches!(entry.spec_kind, SpecKind::FactoredOci) {
+                        for layer in &entry.layers {
+                            seen.insert(layer.digest.clone());
+                        }
+                    }
+                }
+                seen.len()
+            };
+
+            kv(
+                "images",
+                &format!(
+                    "{} factored  {} legacy",
+                    factored_count.if_supports_color(Stream::Stderr, |t| t.green().to_string()),
+                    if legacy_count > 0 {
+                        legacy_count
+                            .if_supports_color(Stream::Stderr, |t| t.yellow().to_string())
+                            .to_string()
+                    } else {
+                        legacy_count
+                            .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string())
+                            .to_string()
+                    }
+                ),
+            );
+
+            if total_layers > 0 {
+                let dedup_pct = 100u64
+                    .saturating_sub((unique_layer_count as u64 * 100) / total_layers as u64);
+                kv(
+                    "dedup",
+                    &format!(
+                        "{}% ({} unique / {} total layers)",
+                        dedup_pct, unique_layer_count, total_layers
+                    ),
+                );
+            }
+
+            if legacy_count > 0 && factored_count > 0 {
+                eprintln!(
+                    "    {:KEY_W$} {} tool{} still on legacy images — \
+                     run `bv add <tool>` to migrate once registry rebuilds are available",
+                    "",
+                    legacy_count
+                        .if_supports_color(Stream::Stderr, |t| t.yellow().to_string()),
+                    if legacy_count == 1 { "" } else { "s" }
+                );
+            }
+        }
     } else {
         kv_dim("bv.lock", "not found");
     }

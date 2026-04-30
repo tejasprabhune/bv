@@ -3,7 +3,7 @@
 ## Development setup
 
 ```sh
-git clone https://github.com/mlberkeley/bv
+git clone https://github.com/tejasprabhune/bv
 cd bv
 cargo build
 cargo test
@@ -47,7 +47,7 @@ BV_CACHE_DIR=/tmp/bv-test cargo test --test integration -- --include-ignored
 
 ## Adding a tool to the registry
 
-See [mlberkeley/bv-registry](https://github.com/mlberkeley/bv-registry) for the registry contribution guide.
+See [tejasprabhune/bv-registry](https://github.com/tejasprabhune/bv-registry) for the registry contribution guide.
 
 ## PR conventions
 
@@ -106,7 +106,7 @@ Pushing the tag triggers the `release.yml` workflow, which builds binaries for a
 
 ### 4. Verify
 
-- Check the [Actions tab](https://github.com/mlberkeley/bv/actions) to confirm the release workflow passed.
+- Check the [Actions tab](https://github.com/tejasprabhune/bv/actions) to confirm the release workflow passed.
 - Confirm the new version appears at `https://crates.io/crates/biov`.
 - Run `cargo install biov` on a clean machine (or `cargo install biov --version x.y.z`) to sanity-check the published binary.
 - On a Linux x86_64 machine, run `install.sh` and confirm it downloads the musl binary and that `bv --version` works.

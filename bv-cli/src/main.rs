@@ -85,7 +85,8 @@ async fn main() -> anyhow::Result<()> {
             backend,
             ..
         } => commands::run::run(tool, args, backend.as_deref()).await,
-        Commands::List { binaries } => commands::list::run(*binaries),
+        Commands::List { binaries, layers } => commands::list::run(*binaries, *layers),
+        Commands::Why { package } => commands::why::run(package),
         Commands::Exec {
             command,
             args,

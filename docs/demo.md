@@ -34,7 +34,7 @@ systemctl --user start docker
 conda install -c conda-forge apptainer
 
 # install bv (one of the following)
-curl -fsSL https://raw.githubusercontent.com/mlberkeley/bv/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/tejasprabhune/bv/main/install.sh | sh
 cargo install biov
 
 mkdir protein-demo && cd protein-demo
@@ -152,7 +152,7 @@ cat bv.toml
 name = "protein-demo"
 
 [registry]
-url = "https://github.com/mlberkeley/bv-registry"
+url = "https://github.com/tejasprabhune/bv-registry"
 
 [[tools]]
 id = "blast"

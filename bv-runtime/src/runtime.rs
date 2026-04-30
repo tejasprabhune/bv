@@ -214,6 +214,23 @@ impl ProgressReporter for NoopProgress {
 
 // ContainerRuntime trait
 
+/// Descriptor for a single OCI layer that needs to be available locally.
+#[derive(Debug, Clone)]
+pub struct LayerSpec {
+    pub digest: String,
+    pub size: u64,
+    pub media_type: String,
+    /// Source URL for pulling the layer blob when not already cached.
+    pub blob_url: Option<String>,
+}
+
+/// A locally-available image identified by an OCI reference + digest.
+#[derive(Debug, Clone)]
+pub struct ImageRef {
+    pub reference: String,
+    pub digest: String,
+}
+
 pub trait ContainerRuntime {
     fn name(&self) -> &str;
     fn health_check(&self) -> Result<RuntimeInfo>;
@@ -226,6 +243,40 @@ pub trait ContainerRuntime {
     }
     fn gpu_args(&self, profile: &GpuProfile) -> Vec<String>;
     fn mount_args(&self, mounts: &[Mount]) -> Vec<String>;
+
+    /// Pull only the specified layers, deduplicating against the local cache.
+    ///
+    /// For `factored_oci` tools, callers pass the per-package layer list and
+    /// the runtime ensures each layer blob is present locally before
+    /// `assemble_image` is called.
+    ///
+    /// The default implementation is a no-op (runtimes that don't support
+    /// factored pulls fall back to `pull`).
+    fn ensure_layers(
+        &self,
+        _layers: &[LayerSpec],
+        _progress: &dyn ProgressReporter,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Assemble a runnable image from a manifest whose layers are all locally
+    /// available (guaranteed by a preceding `ensure_layers` call).
+    ///
+    /// Returns a locally-addressable `ImageRef`. The default implementation
+    /// falls back to `pull` for runtimes that don't support layer assembly.
+    fn assemble_image(
+        &self,
+        image: &OciRef,
+        _layers: &[LayerSpec],
+        progress: &dyn ProgressReporter,
+    ) -> Result<ImageRef> {
+        let digest = self.pull(image, progress)?;
+        Ok(ImageRef {
+            reference: image.to_string(),
+            digest: digest.0,
+        })
+    }
 }
 
 // Tests

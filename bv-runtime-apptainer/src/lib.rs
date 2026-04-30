@@ -1,3 +1,4 @@
+pub mod blob_cache;
 pub mod cache;
 pub mod gpu;
 pub mod image;

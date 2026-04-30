@@ -4,7 +4,7 @@ use bv_core::cache::CacheLayout;
 use bv_index::GitIndex;
 
 /// The built-in default registry. Users can override with BV_REGISTRY or bv.toml.
-pub const DEFAULT_REGISTRY: &str = "https://github.com/mlberkeley/bv-registry";
+pub const DEFAULT_REGISTRY: &str = "https://github.com/tejasprabhune/bv-registry";
 
 /// Resolve the registry URL from (in priority order):
 /// 1. explicit flag / arg

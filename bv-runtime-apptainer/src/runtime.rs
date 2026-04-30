@@ -5,10 +5,11 @@ use std::time::Instant;
 
 use bv_core::error::{BvError, Result};
 use bv_runtime::{
-    ContainerRuntime, GpuProfile, ImageDigest, ImageMetadata, Mount, OciRef, ProgressReporter,
-    RunOutcome, RunSpec, RuntimeInfo,
+    ContainerRuntime, GpuProfile, ImageDigest, ImageMetadata, ImageRef, LayerSpec, Mount, OciRef,
+    ProgressReporter, RunOutcome, RunSpec, RuntimeInfo,
 };
 
+use crate::blob_cache::{layer_index_path, supports_oci_native, LayerIndex};
 use crate::cache::{file_sha256, sif_path_for_digest};
 use crate::gpu::nv_args;
 use crate::image::pull_as_sif;
@@ -253,6 +254,84 @@ impl ContainerRuntime for ApptainerRuntime {
 
     fn mount_args(&self, mounts: &[Mount]) -> Vec<String> {
         bind_args(mounts)
+    }
+
+    /// Check whether all `layers` are already covered by a cached SIF.
+    ///
+    /// Consults the layer index at `<sif_dir>/layer-index.json`. If every
+    /// layer digest in the list maps to a SIF that still exists on disk,
+    /// the pull can be skipped entirely — this is the primary dedup mechanism
+    /// for the Apptainer backend when two tools share conda package layers.
+    fn ensure_layers(
+        &self,
+        layers: &[LayerSpec],
+        progress: &dyn ProgressReporter,
+    ) -> bv_core::error::Result<()> {
+        if layers.is_empty() {
+            return Ok(());
+        }
+
+        let index_path = layer_index_path(&self.sif_dir);
+        let index = LayerIndex::load_or_create(&index_path).unwrap_or_default();
+
+        let all_cached = layers.iter().all(|l| {
+            index
+                .sif_for_layer(&l.digest)
+                .map(|sif_digest| self.sif_for_digest(sif_digest).exists())
+                .unwrap_or(false)
+        });
+
+        if all_cached {
+            progress.update(
+                &format!("All {} layers cached (reusing existing SIF)", layers.len()),
+                None,
+                None,
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Pull a factored OCI image as a SIF, then record the layer→SIF mapping
+    /// in the layer index so future `ensure_layers` calls can short-circuit.
+    ///
+    /// If the Apptainer binary version predates OCI-native mode (< 1.2.0), a
+    /// warning is printed but the pull proceeds via the standard `docker://`
+    /// URI — Apptainer will download and convert the whole image regardless of
+    /// layer structure.
+    fn assemble_image(
+        &self,
+        image: &OciRef,
+        layers: &[LayerSpec],
+        progress: &dyn ProgressReporter,
+    ) -> bv_core::error::Result<ImageRef> {
+        if !layers.is_empty() && !supports_oci_native(&self.bin) {
+            progress.update(
+                "Warning: Apptainer < 1.2 does not support OCI-native mode; \
+                 layer-granularity dedup is unavailable — pulling full image",
+                None,
+                None,
+            );
+        }
+
+        let digest = self.pull(image, progress)?;
+
+        // Record each layer → this SIF in the index so future ensure_layers
+        // calls can skip the pull when the same layers appear in another tool.
+        if !layers.is_empty() {
+            let index_path = layer_index_path(&self.sif_dir);
+            if let Ok(mut index) = LayerIndex::load_or_create(&index_path) {
+                for layer in layers {
+                    index.record(&layer.digest, &digest.0);
+                }
+                let _ = index.save(&index_path);
+            }
+        }
+
+        Ok(ImageRef {
+            reference: image.to_string(),
+            digest: digest.0,
+        })
     }
 }
 

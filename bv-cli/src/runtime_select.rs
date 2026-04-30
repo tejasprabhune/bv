@@ -4,8 +4,8 @@ use bv_core::cache::CacheLayout;
 use bv_core::error::Result;
 use bv_core::project::BvToml;
 use bv_runtime::{
-    ContainerRuntime, DockerRuntime, GpuProfile, ImageDigest, ImageMetadata, Mount, OciRef,
-    ProgressReporter, RunOutcome, RunSpec, RuntimeInfo,
+    ContainerRuntime, DockerRuntime, GpuProfile, ImageDigest, ImageMetadata, ImageRef, LayerSpec,
+    Mount, OciRef, ProgressReporter, RunOutcome, RunSpec, RuntimeInfo,
 };
 use bv_runtime_apptainer::{ApptainerRuntime, is_available as apptainer_available};
 
@@ -70,6 +70,29 @@ impl ContainerRuntime for AnyRuntime {
         match self {
             Self::Docker(r) => r.mount_args(mounts),
             Self::Apptainer(r) => r.mount_args(mounts),
+        }
+    }
+
+    fn ensure_layers(
+        &self,
+        layers: &[LayerSpec],
+        progress: &dyn ProgressReporter,
+    ) -> bv_core::error::Result<()> {
+        match self {
+            Self::Docker(r) => r.ensure_layers(layers, progress),
+            Self::Apptainer(r) => r.ensure_layers(layers, progress),
+        }
+    }
+
+    fn assemble_image(
+        &self,
+        image: &OciRef,
+        layers: &[LayerSpec],
+        progress: &dyn ProgressReporter,
+    ) -> bv_core::error::Result<ImageRef> {
+        match self {
+            Self::Docker(r) => r.assemble_image(image, layers, progress),
+            Self::Apptainer(r) => r.assemble_image(image, layers, progress),
         }
     }
 }

@@ -131,6 +131,7 @@ impl ScaffoldResult {
                 binaries: None,
                 smoke: None,
                 signatures: None,
+                factored: None,
             },
         };
         m.to_toml_string().map_err(|e| anyhow::anyhow!("{}", e))

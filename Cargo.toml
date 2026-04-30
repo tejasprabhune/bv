@@ -1,5 +1,5 @@
 [workspace]
-members = ["bv-cli", "bv-core", "bv-runtime", "bv-runtime-apptainer", "bv-index", "bv-types", "bv-conformance"]
+members = ["bv-cli", "bv-core", "bv-runtime", "bv-runtime-apptainer", "bv-index", "bv-types", "bv-conformance", "bv-builder"]
 resolver = "2"
 
 [workspace.package]
@@ -7,6 +7,6 @@ version = "0.1.17"
 description = "A uv-style tool manager for bioinformatics."
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://github.com/mlberkeley/bv"
-homepage = "https://github.com/mlberkeley/bv"
+repository = "https://github.com/tejasprabhune/bv"
+homepage = "https://github.com/tejasprabhune/bv"
 readme = "README.md"

@@ -14,7 +14,7 @@ on:
       registry-repo:
         required: false
         type: string
-        default: mlberkeley/bv-registry
+        default: tejasprabhune/bv-registry
         description: "Target bv-registry repository in owner/repo form"
       platform:
         required: false
@@ -38,7 +38,7 @@ jobs:
       - name: Install bv
         run: |
           curl -sSfL \
-            https://github.com/mlberkeley/bv/releases/latest/download/bv-linux-x86_64 \
+            https://github.com/tejasprabhune/bv/releases/latest/download/bv-linux-x86_64 \
             -o /tmp/bv
           chmod +x /tmp/bv
           sudo mv /tmp/bv /usr/local/bin/bv

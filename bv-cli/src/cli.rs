@@ -130,6 +130,21 @@ pub enum Commands {
         /// Show binary routing table instead of tool list.
         #[arg(long)]
         binaries: bool,
+        /// Show per-tool layer breakdown (factored tools only).
+        #[arg(long)]
+        layers: bool,
+    },
+
+    /// Show which tools include a given conda package.
+    ///
+    /// For factored tools, names the exact layer and its digest.
+    /// For legacy (squashed) images, reports that the package provenance
+    /// is not tracked — the package may still be present.
+    ///
+    /// Example: `bv why openssl`
+    Why {
+        /// Conda package name to search for (case-insensitive substring match).
+        package: String,
     },
 
     /// Show typed I/O schema and metadata for a tool.
@@ -254,7 +269,7 @@ pub enum Commands {
         #[arg(long, env = "GHCR_TOKEN")]
         ghcr_token: Option<String>,
         /// Target registry repository in `owner/repo` form.
-        #[arg(long, default_value = "mlberkeley/bv-registry")]
+        #[arg(long, default_value = "tejasprabhune/bv-registry")]
         registry_repo: String,
         /// GHCR namespace to push the image into. Defaults to your own GitHub username
         /// (e.g. `ghcr.io/<you>/<tool>:<ver>`), so you don't need org permissions to publish.

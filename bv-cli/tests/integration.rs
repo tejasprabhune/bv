@@ -10,7 +10,7 @@
 ///   cargo test --test integration -- --include-ignored
 ///
 /// On a remote server without a local registry checkout:
-///   BV_REGISTRY=https://github.com/mlberkeley/bv-registry \
+///   BV_REGISTRY=https://github.com/tejasprabhune/bv-registry \
 ///     cargo test --test integration -- --include-ignored --skip alphafold
 use std::env;
 use std::path::{Path, PathBuf};

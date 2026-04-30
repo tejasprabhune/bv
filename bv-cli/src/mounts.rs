@@ -165,6 +165,7 @@ mod tests {
             binaries: None,
             smoke: None,
             signatures: None,
+            factored: None,
         }
     }
 

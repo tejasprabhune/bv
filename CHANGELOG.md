@@ -138,11 +138,11 @@ Initial release.
 - Hardware requirement checking with `--ignore-hardware` override
 - Lockfile v1 schema with `manifest_sha256` for drift detection
 - TTL-based index refresh (5-minute cache for `bv data fetch` and `bv sync` drift check)
-- Built-in default registry (`https://github.com/mlberkeley/bv-registry`): no configuration needed for most users
+- Built-in default registry (`https://github.com/tejasprabhune/bv-registry`): no configuration needed for most users
 - `BV_REGISTRY` environment variable and `--registry` flag for private registries
 - `BV_CACHE_DIR` for test isolation
 
-### Registry (mlberkeley/bv-registry)
+### Registry (tejasprabhune/bv-registry)
 
 - blast 2.14.0, 2.15.0
 - hmmer 3.3.2

@@ -171,7 +171,7 @@ mod tests {
     fn non_biocontainers_returns_none() {
         assert_eq!(parse_biocontainers_ref("ncbi/blast:2.15.0"), None);
         assert_eq!(
-            parse_biocontainers_ref("ghcr.io/mlberkeley/genie2:1.0.0"),
+            parse_biocontainers_ref("ghcr.io/tejasprabhune/genie2:1.0.0"),
             None
         );
         assert_eq!(parse_biocontainers_ref("rosettacommons/proteinmpnn:0.1"), None);
@@ -205,7 +205,7 @@ resolved_at = "2026-04-29T00:00:00Z"
 [tools.genie2]
 tool_id = "genie2"
 version = "1.0.0"
-image_reference = "ghcr.io/mlberkeley/genie2:1.0.0"
+image_reference = "ghcr.io/tejasprabhune/genie2:1.0.0"
 image_digest = "sha256:ccc"
 resolved_at = "2026-04-29T00:00:00Z"
 "#;
@@ -224,7 +224,7 @@ resolved_at = "2026-04-29T00:00:00Z"
         // Custom image lands in the comment block, NOT as a dep.
         assert!(!yaml.contains("- bioconda::genie2"));
         assert!(yaml.contains("# Tools that have no known conda/bioconda equivalent"));
-        assert!(yaml.contains("#   - genie2 (image: ghcr.io/mlberkeley/genie2:1.0.0)"));
+        assert!(yaml.contains("#   - genie2 (image: ghcr.io/tejasprabhune/genie2:1.0.0)"));
 
         assert_eq!(exported, 2);
         assert_eq!(skipped_ids, vec!["genie2".to_string()]);

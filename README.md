@@ -33,7 +33,7 @@ conda install -c conda-forge apptainer
 ### Install bv
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mlberkeley/bv/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/tejasprabhune/bv/main/install.sh | sh
 ```
 
 Or with Cargo:
@@ -214,7 +214,7 @@ bv search --tier core          # only core-tier tools
 bv search colabfold --tier all # include experimental tier
 
 # Browse the full registry with filters at:
-# https://mlberkeley.github.io/bv-registry/
+# https://tejasprabhune.github.io/bv-registry/
 ```
 
 Each tool in the registry carries a `tier`:
@@ -397,7 +397,7 @@ bv publish .
 #    Add another? [y/n]: n
 #
 #  Building image as ghcr.io/bv-registry/my-docking-tool:0.1.0 ...
-#  PR opened: https://github.com/mlberkeley/bv-registry/pull/143
+#  PR opened: https://github.com/tejasprabhune/bv-registry/pull/143
 ```
 
 For automated publishing on every GitHub release, add to `.github/workflows/bv-publish.yml`:
@@ -408,7 +408,7 @@ on:
     types: [published]
 jobs:
   publish:
-    uses: mlberkeley/bv/.github/workflows/bv-publish.yml@main
+    uses: tejasprabhune/bv/.github/workflows/bv-publish.yml@main
     with:
       tool-name: my-docking-tool
     secrets:
@@ -462,7 +462,7 @@ bv data list              # see what is cached locally
 name = "homology-project"
 
 [registry]
-url = "https://github.com/mlberkeley/bv-registry"
+url = "https://github.com/tejasprabhune/bv-registry"
 
 [runtime]
 backend = "auto"          # optional; defaults to auto-detect
@@ -545,7 +545,7 @@ Both files belong in version control. `bv run` always uses the pinned digest. `.
 
 ## The registry
 
-Tools live in [mlberkeley/bv-registry](https://github.com/mlberkeley/bv-registry), a plain git repo of TOML manifests:
+Tools live in [tejasprabhune/bv-registry](https://github.com/tejasprabhune/bv-registry), a plain git repo of TOML manifests:
 
 ```
 bv-registry/
@@ -560,7 +560,7 @@ bv-registry/
   index.json             # generated search index
 ```
 
-Browse and filter at **https://mlberkeley.github.io/bv-registry/**
+Browse and filter at **https://tejasprabhune.github.io/bv-registry/**
 
 A full manifest:
 
@@ -668,7 +668,7 @@ The default registry is used automatically. Override with `--registry <url>` or 
 ## Development
 
 ```sh
-git clone https://github.com/mlberkeley/bv
+git clone https://github.com/tejasprabhune/bv
 cd bv
 cargo build
 cargo test

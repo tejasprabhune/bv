@@ -1,0 +1,39 @@
+[package]
+name = "bv-builder"
+version.workspace = true
+description = "Build reproducible factored OCI images from conda package specs for bv"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "bv-builder"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+sha2 = "0.11"
+hex = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+flate2 = "1"
+zstd = "0.13"
+tar = "0.4"
+oci-client = { version = "0.14", default-features = false, features = ["rustls-tls"] }
+bv-core = { version = "0.1.0", path = "../bv-core" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures-util = "0.3"
+tempfile = "3"
+zip = "8.6.0"
+bzip2 = "0.6.1"
+bytes = "1.11.1"
+
+[dev-dependencies]
+tempfile = "3"

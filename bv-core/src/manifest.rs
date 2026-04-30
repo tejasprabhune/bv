@@ -196,6 +196,48 @@ pub struct ImageSpec {
     pub digest: Option<String>,
 }
 
+/// Layer descriptor embedded in a factored manifest.
+/// Mirrors `lockfile::LayerDescriptor` but lives in the registry TOML.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FactoredLayerSpec {
+    pub digest: String,
+    pub size: u64,
+    pub media_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conda_package: Option<FactoredCondaPin>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FactoredCondaPin {
+    pub name: String,
+    pub version: String,
+    pub build: String,
+    pub channel: String,
+    pub sha256: String,
+}
+
+/// Factored OCI build metadata embedded in the registry manifest.
+///
+/// When `[tool.factored]` is present, clients that support factored images
+/// can pull at layer granularity instead of pulling the monolithic squashed
+/// image in `[tool.image]`. The `[tool.image]` section remains required as
+/// the fallback path for older clients.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FactoredSpec {
+    /// Path to the bv-builder spec YAML relative to the registry root.
+    pub spec_path: String,
+    /// Canonical OCI reference for the factored image.
+    pub image_reference: String,
+    /// Pinned digest of the factored image manifest.
+    pub image_digest: String,
+    /// OCI referrer digest of the repodata snapshot artifact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repodata_snapshot_digest: Option<String>,
+    /// Pre-computed per-layer descriptors, in manifest order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<FactoredLayerSpec>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReferenceDataSpec {
     pub id: String,
@@ -336,6 +378,11 @@ pub struct ToolManifest {
     /// Sigstore / cosign signature declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signatures: Option<SignatureSpec>,
+    /// Factored OCI build metadata. Present when the tool has been rebuilt
+    /// by `bv-builder`. Clients that understand factored images use this for
+    /// layer-granularity pulls; older clients fall back to `[tool.image]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub factored: Option<FactoredSpec>,
 }
 
 impl ToolManifest {

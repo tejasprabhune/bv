@@ -134,6 +134,25 @@ pub async fn run(
                     .version
                     .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
             );
+
+            // Migration hint: existing install is legacy but registry now has
+            // a factored version with per-package layers.
+            if matches!(existing.spec_kind, bv_core::lockfile::SpecKind::LegacyImage)
+                && manifest
+                    .tool
+                    .factored
+                    .as_ref()
+                    .is_some_and(|f| !f.image_digest.is_empty())
+            {
+                eprintln!(
+                    "  {} {} has been rebuilt as a factored image — \
+                     re-run `bv add {}` to migrate to per-package layers and enable deduplication",
+                    "hint:".if_supports_color(Stream::Stderr, |t| t.cyan().to_string()),
+                    tool_id,
+                    tool_id,
+                );
+            }
+
             continue;
         }
 
