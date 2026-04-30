@@ -189,9 +189,11 @@ async fn fetch_base_layers(base_ref: &str) -> Result<Vec<OciLayer>> {
 /// Download and layer a single package group.
 async fn build_group_layer(client: &reqwest::Client, group: &LayerGroup) -> Result<OciLayer> {
     let work_dir = tempfile::tempdir().context("create temp dir for layer build")?;
+    let prefix = work_dir.path().join("opt").join("conda");
+    std::fs::create_dir_all(&prefix).context("create conda prefix dir")?;
 
     for pkg in &group.packages {
-        download_and_extract_package(client, pkg, work_dir.path()).await?;
+        download_and_extract_package(client, pkg, &prefix).await?;
     }
 
     let (compressed, uncompressed_digest) = create_reproducible_layer(work_dir.path())?;
@@ -390,10 +392,10 @@ fn collect_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) -> Result<()> {
     Ok(())
 }
 
-/// Build a thin layer containing `/conda-meta/<pkg>.json` for every package.
+/// Build a thin layer containing `/opt/conda/conda-meta/<pkg>.json` for every package.
 fn build_meta_layer(resolved: &ResolvedSpec) -> Result<OciLayer> {
     let work_dir = tempfile::tempdir().context("create temp dir for meta layer")?;
-    let conda_meta = work_dir.path().join("conda-meta");
+    let conda_meta = work_dir.path().join("opt").join("conda").join("conda-meta");
     std::fs::create_dir_all(&conda_meta)?;
 
     for pkg in &resolved.packages {
