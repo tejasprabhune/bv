@@ -3,6 +3,11 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use bv_core::lockfile::{CondaPackagePin, LayerDescriptor};
+use oci_client::{
+    client::{Client, ClientConfig, ClientProtocol},
+    secrets::RegistryAuth,
+    Reference,
+};
 use sha2::{Digest, Sha256};
 
 use crate::layering::{pack, LayerGroup, PackingStrategy};
@@ -69,14 +74,8 @@ impl OciImage {
 /// Build an `OciImage` from a `ResolvedSpec`.
 ///
 /// Each package in the spec becomes one OCI layer (or a group when packing
-/// is enabled). Reproducibility rules applied to every layer:
-/// - Tar format: PAX (most portable and reproducible)
-/// - All entry mtimes: SOURCE_DATE_EPOCH (0)
-/// - All uid/gid: 0
-/// - Entries sorted by path before tar creation
-/// - Compression: zstd level 19
-///
-/// Reference: https://reproducible-builds.org/docs/archives/
+/// is enabled). A base OS layer (defaults to debian:12-slim) is prepended so
+/// the container has the dynamic linker and glibc that conda binaries require.
 pub async fn build(
     resolved: &ResolvedSpec,
     strategy: &PackingStrategy,
@@ -84,15 +83,21 @@ pub async fn build(
 ) -> Result<OciImage> {
     let groups = pack(&resolved.packages, strategy, popularity);
 
-    let client = reqwest::Client::builder()
+    let http = reqwest::Client::builder()
         .user_agent("bv-builder/0.1")
         .timeout(std::time::Duration::from_secs(300))
         .build()?;
 
-    let mut layers: Vec<OciLayer> = Vec::new();
+    // Pull base image layers first so the container has glibc + dynamic linker.
+    let base_ref = resolved
+        .base
+        .as_deref()
+        .unwrap_or("docker.io/library/debian:12-slim");
+    let mut layers = fetch_base_layers(base_ref).await
+        .with_context(|| format!("fetch base image '{base_ref}'"))?;
 
     for group in &groups {
-        let layer = build_group_layer(&client, group).await?;
+        let layer = build_group_layer(&http, group).await?;
         layers.push(layer);
     }
 
@@ -112,6 +117,73 @@ pub async fn build(
         layers,
         config,
     })
+}
+
+/// Pull a base OCI image from a registry and return its layers.
+///
+/// The base image (typically `debian:12-slim`) provides glibc and the dynamic
+/// linker that conda binaries depend on. Its layers are prepended before the
+/// conda package layers so the container root FS is complete.
+async fn fetch_base_layers(base_ref: &str) -> Result<Vec<OciLayer>> {
+    use futures_util::StreamExt;
+
+    let reference: Reference = base_ref
+        .parse()
+        .with_context(|| format!("parse base OCI reference '{base_ref}'"))?;
+
+    let oci_config = ClientConfig {
+        protocol: ClientProtocol::HttpsExcept(vec!["localhost".into(), "127.0.0.1".into()]),
+        ..Default::default()
+    };
+    let client = Client::new(oci_config);
+    let auth = RegistryAuth::Anonymous;
+
+    let (manifest, _digest, config_json) = client
+        .pull_manifest_and_config(&reference, &auth)
+        .await
+        .with_context(|| format!("pull manifest+config for '{base_ref}'"))?;
+
+    let base_config: serde_json::Value = serde_json::from_str(&config_json)
+        .context("parse base image config")?;
+    let base_diff_ids = base_config["rootfs"]["diff_ids"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+
+    let mut result = Vec::new();
+    for (i, layer_desc) in manifest.layers.iter().enumerate() {
+        let digest = &layer_desc.digest;
+        let media_type = &layer_desc.media_type;
+        let size = layer_desc.size as u64;
+
+        let mut compressed = Vec::new();
+        let mut stream = client
+            .pull_blob_stream(&reference, layer_desc)
+            .await
+            .with_context(|| format!("pull base layer blob {digest}"))?;
+        while let Some(chunk) = stream.next().await {
+            compressed.extend_from_slice(&chunk?);
+        }
+
+        let uncompressed_digest = base_diff_ids
+            .get(i)
+            .and_then(|v| v.as_str())
+            .unwrap_or(digest)
+            .to_string();
+
+        result.push(OciLayer {
+            compressed,
+            uncompressed_digest,
+            descriptor: LayerDescriptor {
+                digest: digest.clone(),
+                size,
+                media_type: media_type.clone(),
+                conda_package: None,
+            },
+        });
+    }
+
+    Ok(result)
 }
 
 /// Download and layer a single package group.

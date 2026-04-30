@@ -95,6 +95,10 @@ pub struct BuildSpec {
     pub packages: Vec<String>,
     pub entrypoint: EntrypointSpec,
     pub platform: Platform,
+    /// Optional base OCI image to pull layers from before the conda layers.
+    /// Defaults to `debian:12-slim` when not specified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
 }
 
 impl BuildSpec {
@@ -118,6 +122,9 @@ pub struct ResolvedPackage {
     pub sha256: String,
     /// File name: `<name>-<version>-<build>.conda` or `.tar.bz2`.
     pub filename: String,
+    /// Runtime dependencies declared by this package (used during transitive resolution).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depends: Vec<String>,
 }
 
 // ResolvedSpec
@@ -137,6 +144,9 @@ pub struct ResolvedSpec {
     /// Optional: path/URL to the repodata snapshot used during resolution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repodata_snapshot: Option<String>,
+    /// Base OCI image reference to include as the first layers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
 }
 
 impl ResolvedSpec {
@@ -185,6 +195,7 @@ mod tests {
                     url: "https://example.com/zlib.conda".into(),
                     sha256: "abc".into(),
                     filename: "zlib-1.3.1-h0_0.conda".into(),
+                    depends: vec![],
                 },
                 ResolvedPackage {
                     name: "openssl".into(),
@@ -194,9 +205,11 @@ mod tests {
                     url: "https://example.com/openssl.conda".into(),
                     sha256: "def".into(),
                     filename: "openssl-3.2.1-h0_0.conda".into(),
+                    depends: vec![],
                 },
             ],
             repodata_snapshot: None,
+            base: None,
         };
         spec.sort_packages();
         assert_eq!(spec.packages[0].name, "openssl");

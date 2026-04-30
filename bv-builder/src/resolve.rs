@@ -1,3 +1,5 @@
+use std::collections::{HashSet, VecDeque};
+
 use anyhow::{bail, Context, Result};
 use reqwest::Client;
 
@@ -8,14 +10,10 @@ use crate::spec::{BuildSpec, PackageSpec, Platform, ResolvedPackage, ResolvedSpe
 ///
 /// Resolution strategy:
 /// 1. Download `repodata.json` for each channel + subdir.
-/// 2. For each `PackageSpec`, find the latest matching package.
-/// 3. Walk transitive dependencies and pin each one.
-/// 4. Return a deterministically sorted `ResolvedSpec`.
-///
-/// This is a simplified resolver that handles direct dependencies.
-/// For full SAT-based solving, wire in rattler_solve when available.
+/// 2. BFS from the declared packages, resolving each transitive dependency.
+/// 3. Return a deterministically sorted `ResolvedSpec`.
 pub async fn resolve(spec: &BuildSpec) -> Result<ResolvedSpec> {
-    let packages = spec.package_specs()?;
+    let direct = spec.package_specs()?;
     let subdir = platform_subdir(&spec.platform);
 
     let client = Client::builder()
@@ -24,17 +22,49 @@ pub async fn resolve(spec: &BuildSpec) -> Result<ResolvedSpec> {
         .build()
         .context("build HTTP client")?;
 
-    let mut resolved_packages: Vec<ResolvedPackage> = Vec::new();
-    let mut resolved_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Cache repodata to avoid re-downloading per package.
+    let mut repodata_cache: std::collections::HashMap<String, RepodataIndex> =
+        std::collections::HashMap::new();
 
-    for pkg_spec in &packages {
-        if resolved_names.contains(&pkg_spec.name) {
+    let mut resolved_packages: Vec<ResolvedPackage> = Vec::new();
+    let mut resolved_names: HashSet<String> = HashSet::new();
+
+    let mut queue: VecDeque<PackageSpec> = direct.into_iter().collect();
+
+    while let Some(pkg_spec) = queue.pop_front() {
+        if resolved_names.contains(&pkg_spec.name) || is_virtual_package(&pkg_spec.name) {
             continue;
         }
-        let resolved = resolve_package(&client, pkg_spec, &spec.channels, &subdir).await?;
+
+        let resolved = resolve_package_cached(
+            &client,
+            &pkg_spec,
+            &spec.channels,
+            &subdir,
+            &mut repodata_cache,
+        )
+        .await?;
+
+        for dep_str in &resolved.depends {
+            if let Some(dep_spec) = parse_dep_spec(dep_str) {
+                if !resolved_names.contains(&dep_spec.name)
+                    && !is_virtual_package(&dep_spec.name)
+                {
+                    queue.push_back(dep_spec);
+                }
+            }
+        }
+
         resolved_names.insert(resolved.name.clone());
         resolved_packages.push(resolved);
     }
+
+    let base = spec.base.clone().or_else(|| {
+        Some(match &spec.platform {
+            crate::spec::Platform::LinuxAmd64 => "docker.io/library/debian:12-slim".to_string(),
+            crate::spec::Platform::LinuxArm64 => "docker.io/library/debian:12-slim".to_string(),
+        })
+    });
 
     let mut out = ResolvedSpec {
         name: spec.name.clone(),
@@ -43,35 +73,65 @@ pub async fn resolve(spec: &BuildSpec) -> Result<ResolvedSpec> {
         channels: spec.channels.clone(),
         packages: resolved_packages,
         repodata_snapshot: None,
+        base,
     };
     out.sort_packages();
     Ok(out)
 }
 
-/// Try each channel in order and return the first match for `pkg_spec`.
-/// Checks the platform-specific subdir first, then falls back to `noarch`.
-async fn resolve_package(
+/// Virtual/meta packages that don't have downloadable artifacts.
+fn is_virtual_package(name: &str) -> bool {
+    name.starts_with("__")
+        || matches!(
+            name,
+            "_libgcc_mutex" | "_openmp_mutex" | "ca-certificates" | "certifi"
+        )
+}
+
+/// Parse a conda dependency string (e.g. "libgcc-ng >=12.3.0,<13.0a0") into a PackageSpec.
+fn parse_dep_spec(dep: &str) -> Option<PackageSpec> {
+    let dep = dep.trim();
+    // Strip trailing build string markers (e.g. " * nomkl")
+    let dep = dep.split(" * ").next().unwrap_or(dep);
+
+    let mut parts = dep.splitn(2, ' ');
+    let name = parts.next()?.trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    let version_spec = parts.next().unwrap_or("*").trim().to_string();
+    Some(PackageSpec {
+        name,
+        version_spec: crate::spec::VersionSpec(version_spec),
+    })
+}
+
+/// Try each channel in order and return the first match, using a repodata cache.
+async fn resolve_package_cached(
     client: &Client,
     pkg_spec: &PackageSpec,
     channels: &[String],
     subdir: &str,
+    cache: &mut std::collections::HashMap<String, RepodataIndex>,
 ) -> Result<ResolvedPackage> {
     for channel in channels {
         for try_subdir in [subdir, "noarch"] {
             let repodata_url = format!("{channel}/{try_subdir}/repodata.json");
-            let repodata: RepodataIndex = match client
-                .get(&repodata_url)
-                .send()
-                .await
-            {
-                Ok(resp) if resp.status().is_success() => resp
-                    .json()
-                    .await
-                    .with_context(|| format!("parse repodata from {repodata_url}"))?,
-                _ => continue,
+            let repodata = if let Some(rd) = cache.get(&repodata_url) {
+                rd
+            } else {
+                let rd: RepodataIndex = match client.get(&repodata_url).send().await {
+                    Ok(resp) if resp.status().is_success() => resp
+                        .json()
+                        .await
+                        .with_context(|| format!("parse repodata from {repodata_url}"))?,
+                    _ => continue,
+                };
+                cache.insert(repodata_url.clone(), rd);
+                cache.get(&repodata_url).unwrap()
             };
 
-            if let Some(pkg) = find_best_match(&repodata, pkg_spec, channel, try_subdir) {
+            if let Some(pkg) = find_best_match(repodata, pkg_spec, channel, try_subdir) {
                 return Ok(pkg);
             }
         }
@@ -119,6 +179,7 @@ fn find_best_match(
             url,
             sha256: rec.sha256.clone().unwrap_or_default(),
             filename: filename.to_string(),
+            depends: rec.depends.clone(),
         }
     })
 }
@@ -163,6 +224,8 @@ struct RepodataPackageRecord {
     #[serde(default)]
     pub build_number: u32,
     pub sha256: Option<String>,
+    #[serde(default)]
+    pub depends: Vec<String>,
 }
 
 #[cfg(test)]

@@ -136,6 +136,7 @@ mod tests {
             url: format!("https://example.com/{name}.conda"),
             sha256: "abc".into(),
             filename: format!("{name}-1.0.0-h0_0.conda"),
+            depends: vec![],
         }
     }
 
@@ -284,6 +285,7 @@ mod tests {
                     url: format!("https://example.com/{name}.conda"),
                     sha256: format!("sha256-{name}"),
                     filename: format!("{name}-1.0.0-h0_0.conda"),
+                    depends: vec![],
                 })
                 .collect();
 
