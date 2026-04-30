@@ -125,35 +125,47 @@ pub async fn run(
         if let Some(existing) = lockfile.tools.get(&tool_id)
             && existing.version == manifest.tool.version
         {
-            eprintln!(
-                "  {} {} {} is already up to date",
-                "note:".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
-                tool_id,
-                manifest
-                    .tool
-                    .version
-                    .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
-            );
-
-            // Migration hint: existing install is legacy but registry now has
-            // a factored version with per-package layers.
-            if matches!(existing.spec_kind, bv_core::lockfile::SpecKind::LegacyImage)
-                && manifest
-                    .tool
-                    .factored
-                    .as_ref()
-                    .is_some_and(|f| !f.image_digest.is_empty())
-            {
+            // Verify the image actually exists locally before trusting the lockfile.
+            // If it was deleted with `docker rmi` or `bv cache prune --docker`, we
+            // must re-pull rather than silently skip.
+            if !image_present_in_docker(&existing.image_digest) {
                 eprintln!(
-                    "  {} {} has been rebuilt as a factored image — \
-                     re-run `bv add {}` to migrate to per-package layers and enable deduplication",
-                    "hint:".if_supports_color(Stream::Stderr, |t| t.cyan().to_string()),
+                    "  {} {} {} was removed from the local image store; re-pulling",
+                    "note:".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
                     tool_id,
-                    tool_id,
+                    existing.version,
                 );
-            }
+            } else {
+                eprintln!(
+                    "  {} {} {} is already up to date",
+                    "note:".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
+                    tool_id,
+                    manifest
+                        .tool
+                        .version
+                        .if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
+                );
 
-            continue;
+                // Migration hint: existing install is legacy but registry now has
+                // a factored version with per-package layers.
+                if matches!(existing.spec_kind, bv_core::lockfile::SpecKind::LegacyImage)
+                    && manifest
+                        .tool
+                        .factored
+                        .as_ref()
+                        .is_some_and(|f| !f.image_digest.is_empty())
+                {
+                    eprintln!(
+                        "  {} {} has been rebuilt as a factored image — \
+                         re-run `bv add {}` to migrate to per-package layers and enable deduplication",
+                        "hint:".if_supports_color(Stream::Stderr, |t| t.cyan().to_string()),
+                        tool_id,
+                        tool_id,
+                    );
+                }
+
+                continue;
+            }
         }
 
         let oci_ref: OciRef = manifest
@@ -382,6 +394,22 @@ pub fn short_digest(digest: &str) -> &str {
         .find(':')
         .and_then(|i| digest.get(i + 1..i + 13))
         .unwrap_or(digest)
+}
+
+/// Returns `true` when the image identified by `digest` (e.g. `sha256:abc…`)
+/// is present in the local Docker image store.
+///
+/// Returns `false` on any error — Docker not running, image absent, etc. —
+/// so callers treat an unknown state as "needs a pull".
+fn image_present_in_docker(digest: &str) -> bool {
+    std::process::Command::new("docker")
+        .args(["image", "inspect", "--format", "{{.ID}}", digest])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 fn verify_signature(tool_id: &str, manifest: &Manifest) -> anyhow::Result<()> {

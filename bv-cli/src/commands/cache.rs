@@ -266,6 +266,8 @@ pub struct Reachable {
     pub digests: BTreeSet<String>,
     /// All `(tool_id, version)` pairs.
     pub tool_versions: BTreeSet<(String, String)>,
+    /// All `image_reference` strings (e.g. `ghcr.io/org/tool:1.0`).
+    pub image_references: BTreeSet<String>,
 }
 
 impl Reachable {
@@ -274,6 +276,7 @@ impl Reachable {
             self.digests.insert(entry.image_digest.clone());
             self.tool_versions
                 .insert((entry.tool_id.clone(), entry.version.clone()));
+            self.image_references.insert(entry.image_reference.clone());
         }
     }
 }
@@ -309,36 +312,52 @@ pub fn run_prune(
     let total_bytes: u64 = plan.items.iter().map(|i| i.size).sum::<u64>()
         + tmp_plan.items.iter().map(|i| i.size).sum::<u64>();
 
-    if total_items == 0 {
+    // Docker images to remove: those whose digest isn't referenced by any known lockfile.
+    let docker_candidates = if all {
+        docker_unreferenced_images(&Reachable::default())
+    } else {
+        docker_unreferenced_images(&reachable)
+    };
+
+    let total_items = plan.items.len() + tmp_plan.items.len();
+    let total_bytes: u64 = plan.items.iter().map(|i| i.size).sum::<u64>()
+        + tmp_plan.items.iter().map(|i| i.size).sum::<u64>();
+
+    if total_items == 0 && docker_candidates.is_empty() {
         println!("  nothing to prune");
-        println!(
-            "  {} Docker image cache not pruned; run `docker image prune` separately.",
-            "note:".if_supports_color(Stream::Stdout, |t| t.dimmed().to_string()),
-        );
         return Ok(());
     }
 
     if dry_run {
         println!("  (dry run) would remove:");
         print_plan(&plan, &tmp_plan);
+        if !docker_candidates.is_empty() {
+            println!("  Docker images (unreferenced by any bv.lock):");
+            for img in &docker_candidates {
+                println!("    {}", img.display_ref);
+            }
+        }
         println!(
             "  Total: {} items, {} would be freed.",
             total_items,
             format_size(total_bytes),
         );
-        println!(
-            "  {} Docker image cache not pruned; run `docker image prune` separately.",
-            "note:".if_supports_color(Stream::Stdout, |t| t.dimmed().to_string()),
-        );
         return Ok(());
     }
 
+    let docker_display: Vec<_> = docker_candidates.iter().map(|i| i.display_ref.clone()).collect();
+    let confirm_msg = match (total_items, docker_candidates.len()) {
+        (0, d) => format!("  Remove {d} Docker image{}? [y/N] ", if d == 1 { "" } else { "s" }),
+        (n, 0) => format!("  Remove {n} cache item{}, free {}? [y/N] ",
+            if n == 1 { "" } else { "s" }, format_size(total_bytes)),
+        (n, d) => format!("  Remove {n} cache item{} and {d} Docker image{}, free {}? [y/N] ",
+            if n == 1 { "" } else { "s" },
+            if d == 1 { "" } else { "s" },
+            format_size(total_bytes)),
+    };
+
     if !yes {
-        eprint!(
-            "  Remove {} items, free {}? [y/N] ",
-            total_items,
-            format_size(total_bytes)
-        );
+        eprint!("{confirm_msg}");
         let _ = std::io::stderr().flush();
         let mut buf = String::new();
         std::io::stdin().read_line(&mut buf)?;
@@ -351,10 +370,31 @@ pub fn run_prune(
 
     let summary = apply_plan(&plan, &tmp_plan)?;
     print_summary(&summary);
-    println!(
-        "  {} Docker image cache not pruned; run `docker image prune` separately.",
-        "note:".if_supports_color(Stream::Stdout, |t| t.dimmed().to_string()),
-    );
+
+    for img in &docker_display {
+        let ok = std::process::Command::new("docker")
+            .args(["rmi", img])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok {
+            println!(
+                "  {} Docker image {}",
+                "Removed".if_supports_color(Stream::Stdout, |t| t.green().bold().to_string()),
+                img,
+            );
+        } else {
+            println!(
+                "  {} could not remove Docker image {} (may be in use or Docker unavailable)",
+                "warning:".if_supports_color(Stream::Stdout, |t| t.yellow().bold().to_string()),
+                img,
+            );
+        }
+    }
+
     Ok(())
 }
 
@@ -668,6 +708,83 @@ fn collect_locks_under(root: &Path, reach: &mut Reachable) {
         }
     }
     walk(root, 6, reach);
+}
+
+// =====================================================================
+// Docker image helpers
+// =====================================================================
+
+struct DockerImage {
+    /// The reference we pass to `docker rmi` (repo:tag or repo@digest).
+    display_ref: String,
+    /// The full image ID / digest as reported by `docker images`.
+    id: String,
+}
+
+/// Return Docker images whose digest does not appear in any known lockfile.
+///
+/// Only images that match a known bv image reference pattern are considered
+/// (those listed in any reachable lockfile's `image_references` set, plus any
+/// image whose ID matches a reachable digest). Images unknown to bv are left
+/// alone — we only clean up what bv pulled.
+fn docker_unreferenced_images(reachable: &Reachable) -> Vec<DockerImage> {
+    // `docker images --format "{{.Repository}}:{{.Tag}}\t{{.Digest}}\t{{.ID}}"``
+    // Each line: "repo:tag  sha256:digest  sha256:id"
+    let Ok(out) = std::process::Command::new("docker")
+        .args([
+            "images",
+            "--no-trunc",
+            "--format",
+            "{{.Repository}}:{{.Tag}}\t{{.Digest}}\t{{.ID}}",
+        ])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+    else {
+        return vec![];
+    };
+
+    if !out.status.success() {
+        return vec![];
+    }
+
+    let mut candidates = vec![];
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let parts: Vec<&str> = line.splitn(3, '\t').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        let ref_tag = parts[0];
+        let digest = parts[1]; // "sha256:..." or "<none>"
+        let id = parts[2];     // "sha256:..." full image ID
+
+        // Only consider images that bv knows about (appear in at least one lockfile).
+        let is_bv_image = reachable.image_references.contains(ref_tag)
+            || (!digest.is_empty() && digest != "<none>" && reachable.digests.contains(digest));
+
+        if !is_bv_image && !reachable.image_references.is_empty() {
+            // Image not in any known lockfile's reference list — skip, not ours.
+            // (If reachable is empty, --all was passed; prune everything bv-related
+            //  which we can't identify without the lockfiles, so skip safely.)
+            continue;
+        }
+
+        let referenced = (!digest.is_empty() && digest != "<none>" && reachable.digests.contains(digest))
+            || reachable.image_references.contains(ref_tag);
+
+        if !referenced {
+            candidates.push(DockerImage {
+                display_ref: if digest != "<none>" {
+                    format!("{ref_tag}@{digest}")
+                } else {
+                    ref_tag.to_string()
+                },
+                id: id.to_string(),
+            });
+        }
+    }
+
+    candidates
 }
 
 // =====================================================================
