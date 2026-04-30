@@ -178,8 +178,7 @@ fn find_best_match(
 
     // Sort by version descending, then build descending → pick latest.
     candidates.sort_by(|(_, a), (_, b)| {
-        b.version
-            .cmp(&a.version)
+        compare_conda_version(&b.version, &a.version)
             .then(b.build_number.cmp(&a.build_number))
     });
 
@@ -198,19 +197,78 @@ fn find_best_match(
     })
 }
 
-/// Rudimentary version matcher for conda-style specs:
-/// `*` / `` → any, `==X` → exact, `>=X` → >=, `>=X,<Y` → range.
+/// Check if `version` satisfies a conda-style constraint spec.
+/// Handles `*`, `==X`, `>=X`, `>X`, `<=X`, `<X`, and comma-separated combinations.
 fn version_matches(version: &str, spec: &str) -> bool {
     let spec = spec.trim();
     if spec.is_empty() || spec == "*" {
         return true;
     }
-    if let Some(exact) = spec.strip_prefix("==") {
-        return version == exact.trim();
+    for part in spec.split(',') {
+        let part = part.trim();
+        if let Some(bound) = part.strip_prefix(">=") {
+            if compare_conda_version(version, bound.trim()) == std::cmp::Ordering::Less {
+                return false;
+            }
+        } else if let Some(bound) = part.strip_prefix('>') {
+            if compare_conda_version(version, bound.trim()) != std::cmp::Ordering::Greater {
+                return false;
+            }
+        } else if let Some(bound) = part.strip_prefix("<=") {
+            if compare_conda_version(version, bound.trim()) == std::cmp::Ordering::Greater {
+                return false;
+            }
+        } else if let Some(bound) = part.strip_prefix('<') {
+            if compare_conda_version(version, bound.trim()) != std::cmp::Ordering::Less {
+                return false;
+            }
+        } else if let Some(exact) = part.strip_prefix("==") {
+            if version != exact.trim() {
+                return false;
+            }
+        } else if let Some(ne) = part.strip_prefix("!=") {
+            if version == ne.trim() {
+                return false;
+            }
+        }
+        // Unknown operator: skip conservatively
     }
-    // Treat anything else as a constraint string but allow the package through
-    // for now; full semver/conda-version matching is deferred to rattler_solve.
     true
+}
+
+/// Compare two conda version strings using numeric segment ordering.
+///
+/// Splits on "." and compares each segment numerically.  Segments with a
+/// non-numeric suffix (e.g. "0a0", "0b1", "0rc1") are treated as
+/// pre-releases and sort before the matching numeric-only segment:
+///   "1.22.0a0" < "1.22.0"
+/// This matches conda's version ordering so that constraints like
+/// `<1.22.0a0` work correctly.
+fn compare_conda_version(a: &str, b: &str) -> std::cmp::Ordering {
+    let a_segs: Vec<(u64, bool)> = a.split('.').map(version_seg).collect();
+    let b_segs: Vec<(u64, bool)> = b.split('.').map(version_seg).collect();
+    let len = a_segs.len().max(b_segs.len());
+    for i in 0..len {
+        let (an, a_pre) = a_segs.get(i).copied().unwrap_or((0, false));
+        let (bn, b_pre) = b_segs.get(i).copied().unwrap_or((0, false));
+        match an.cmp(&bn) {
+            std::cmp::Ordering::Equal => match (a_pre, b_pre) {
+                (true, false) => return std::cmp::Ordering::Less,
+                (false, true) => return std::cmp::Ordering::Greater,
+                _ => {}
+            },
+            other => return other,
+        }
+    }
+    std::cmp::Ordering::Equal
+}
+
+/// Parse one dot-separated version segment into (numeric_value, is_prerelease).
+/// "21" → (21, false), "0a0" → (0, true), "0rc1" → (0, true).
+fn version_seg(seg: &str) -> (u64, bool) {
+    let digits: String = seg.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let is_pre = digits.len() < seg.len();
+    (digits.parse().unwrap_or(0), is_pre)
 }
 
 fn platform_subdir(platform: &Platform) -> String {
@@ -256,5 +314,37 @@ mod tests {
     fn version_matches_exact() {
         assert!(version_matches("1.19.2", "==1.19.2"));
         assert!(!version_matches("1.18.0", "==1.19.2"));
+    }
+
+    #[test]
+    fn version_matches_gte() {
+        assert!(version_matches("1.21", ">=1.21"));
+        assert!(version_matches("1.21.0", ">=1.21"));
+        assert!(!version_matches("1.9", ">=1.21"));
+        assert!(!version_matches("1.20.5", ">=1.21"));
+    }
+
+    #[test]
+    fn version_matches_range() {
+        assert!(version_matches("1.21.0", ">=1.21,<1.22.0a0"));
+        assert!(!version_matches("1.9", ">=1.21,<1.22.0a0"));
+        assert!(!version_matches("1.22.0", ">=1.21,<1.22.0a0"));
+    }
+
+    #[test]
+    fn compare_numeric_version_order() {
+        use std::cmp::Ordering::*;
+        assert_eq!(compare_conda_version("1.21", "1.9"), Greater);
+        assert_eq!(compare_conda_version("1.9", "1.21"), Less);
+        assert_eq!(compare_conda_version("1.21.0", "1.21"), Equal);
+        assert_eq!(compare_conda_version("2.0.0", "1.99.99"), Greater);
+    }
+
+    #[test]
+    fn compare_prerelease_sorts_before_release() {
+        use std::cmp::Ordering::*;
+        assert_eq!(compare_conda_version("1.22.0a0", "1.22.0"), Less);
+        assert_eq!(compare_conda_version("1.22.0", "1.22.0a0"), Greater);
+        assert_eq!(compare_conda_version("1.21.0", "1.22.0a0"), Less);
     }
 }
