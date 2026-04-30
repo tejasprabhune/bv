@@ -532,6 +532,7 @@ fn build_config(resolved: &ResolvedSpec, layers: &[OciLayer]) -> Result<Vec<u8>>
         "config": {
             "Env": [
                 "PATH=/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "LD_LIBRARY_PATH=/opt/conda/lib",
             ],
             "Labels": {
                 "org.opencontainers.image.title": &resolved.name,
