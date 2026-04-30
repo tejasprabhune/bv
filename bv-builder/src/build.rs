@@ -27,6 +27,8 @@ pub struct OciImage {
 pub struct OciLayer {
     pub compressed: Vec<u8>,
     pub descriptor: LayerDescriptor,
+    /// sha256 of the uncompressed tarball; used for the OCI config DiffID.
+    pub uncompressed_digest: String,
 }
 
 impl OciImage {
@@ -138,10 +140,9 @@ async fn build_group_layer(client: &reqwest::Client, group: &LayerGroup) -> Resu
         None
     };
 
-    let _ = uncompressed_digest;
-
     Ok(OciLayer {
         compressed,
+        uncompressed_digest: format!("sha256:{uncompressed_digest}"),
         descriptor: LayerDescriptor {
             digest,
             size,
@@ -270,7 +271,14 @@ fn create_reproducible_layer(dir: &Path) -> Result<(Vec<u8>, String)> {
             header.set_username("")?;
             header.set_groupname("")?;
 
-            if meta.is_file() {
+            if meta.file_type().is_symlink() {
+                let target = fs::read_link(entry_path)?;
+                header.set_size(0);
+                header.set_entry_type(tar::EntryType::Symlink);
+                header.set_link_name(&target)?;
+                header.set_cksum();
+                builder.append(&header, std::io::empty())?;
+            } else if meta.is_file() {
                 let data = fs::read(entry_path)?;
                 header.set_size(data.len() as u64);
                 header.set_cksum();
@@ -297,7 +305,10 @@ fn collect_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) -> Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.is_dir() {
+        let meta = std::fs::symlink_metadata(&path)?;
+        if meta.file_type().is_symlink() {
+            out.push(path);
+        } else if meta.is_dir() {
             out.push(path.clone());
             collect_files(&path, out)?;
         } else {
@@ -327,12 +338,13 @@ fn build_meta_layer(resolved: &ResolvedSpec) -> Result<OciLayer> {
         std::fs::write(&path, serde_json::to_string_pretty(&meta)?)?;
     }
 
-    let (compressed, _) = create_reproducible_layer(work_dir.path())?;
+    let (compressed, uncompressed_digest) = create_reproducible_layer(work_dir.path())?;
     let digest = format!("sha256:{}", sha256_hex(&compressed));
     let size = compressed.len() as u64;
 
     Ok(OciLayer {
         compressed,
+        uncompressed_digest: format!("sha256:{uncompressed_digest}"),
         descriptor: LayerDescriptor {
             digest,
             size,
@@ -362,12 +374,13 @@ fn build_entrypoint_layer(_resolved: &ResolvedSpec) -> Result<OciLayer> {
         std::fs::set_permissions(&script_path, perms)?;
     }
 
-    let (compressed, _) = create_reproducible_layer(work_dir.path())?;
+    let (compressed, uncompressed_digest) = create_reproducible_layer(work_dir.path())?;
     let digest = format!("sha256:{}", sha256_hex(&compressed));
     let size = compressed.len() as u64;
 
     Ok(OciLayer {
         compressed,
+        uncompressed_digest: format!("sha256:{uncompressed_digest}"),
         descriptor: LayerDescriptor {
             digest,
             size,
@@ -381,11 +394,7 @@ fn build_entrypoint_layer(_resolved: &ResolvedSpec) -> Result<OciLayer> {
 fn build_config(resolved: &ResolvedSpec, layers: &[OciLayer]) -> Result<Vec<u8>> {
     let diff_ids: Vec<String> = layers
         .iter()
-        .map(|l| {
-            // DiffID is the sha256 of the *uncompressed* layer; we only have the
-            // compressed digest here, so we use that as a stand-in.
-            l.descriptor.digest.clone()
-        })
+        .map(|l| l.uncompressed_digest.clone())
         .collect();
 
     let config = serde_json::json!({

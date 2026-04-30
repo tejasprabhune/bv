@@ -47,13 +47,14 @@ impl BenchReport {
 
     pub fn print_table(&self) {
         println!(
-            "{:<15} {:>10} {:>14} {:>14} {:>12}",
-            "fixture", "tools", "install (s)", "footprint (MB)", "cold-run (s)"
+            "{:<12} {:<15} {:>10} {:>14} {:>14} {:>12}",
+            "path", "fixture", "tools", "install (s)", "footprint (MB)", "cold-run (s)"
         );
-        println!("{}", "-".repeat(65));
+        println!("{}", "-".repeat(81));
         for r in &self.results {
             println!(
-                "{:<15} {:>10} {:>14.2} {:>14.1} {:>12.3}",
+                "{:<12} {:<15} {:>10} {:>14.2} {:>14.1} {:>12.3}",
+                r.path_name,
                 r.fixture_name,
                 r.tool_count,
                 r.install_secs(),

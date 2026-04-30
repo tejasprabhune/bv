@@ -63,6 +63,7 @@ pub fn load_from_tarball(path: &std::path::Path) -> Result<OciImage> {
 
         layers.push(OciLayer {
             compressed,
+            uncompressed_digest: String::new(),
             descriptor: LayerDescriptor {
                 digest: digest.to_string(),
                 size,
