@@ -29,28 +29,42 @@ pub async fn resolve(spec: &BuildSpec) -> Result<ResolvedSpec> {
     let mut resolved_packages: Vec<ResolvedPackage> = Vec::new();
     let mut resolved_names: HashSet<String> = HashSet::new();
 
-    let mut queue: VecDeque<PackageSpec> = direct.into_iter().collect();
+    // (name, is_direct)
+    let mut queue: VecDeque<(PackageSpec, bool)> =
+        direct.into_iter().map(|p| (p, true)).collect();
 
-    while let Some(pkg_spec) = queue.pop_front() {
+    while let Some((pkg_spec, is_direct)) = queue.pop_front() {
         if resolved_names.contains(&pkg_spec.name) || is_virtual_package(&pkg_spec.name) {
             continue;
         }
 
-        let resolved = resolve_package_cached(
+        let resolved = match resolve_package_cached(
             &client,
             &pkg_spec,
             &spec.channels,
             &subdir,
             &mut repodata_cache,
         )
-        .await?;
+        .await
+        {
+            Ok(r) => r,
+            Err(e) if !is_direct => {
+                eprintln!(
+                    "warning: skipping transitive dep '{}': {e}",
+                    pkg_spec.name
+                );
+                resolved_names.insert(pkg_spec.name.clone());
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
 
         for dep_str in &resolved.depends {
             if let Some(dep_spec) = parse_dep_spec(dep_str) {
                 if !resolved_names.contains(&dep_spec.name)
                     && !is_virtual_package(&dep_spec.name)
                 {
-                    queue.push_back(dep_spec);
+                    queue.push_back((dep_spec, false));
                 }
             }
         }
