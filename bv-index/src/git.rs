@@ -55,6 +55,10 @@ impl GitIndex {
 
     fn git_refresh(&self) -> Result<()> {
         if self.local_path.exists() {
+            // Re-point the remote if the cached clone is from a different URL.
+            // This handles users who had the old default registry cloned.
+            self.maybe_update_remote()?;
+
             let out = Command::new("git")
                 .args([
                     "-C",
@@ -62,6 +66,8 @@ impl GitIndex {
                     "pull",
                     "--ff-only",
                 ])
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped())
                 .output()?;
@@ -85,6 +91,8 @@ impl GitIndex {
                     &self.url,
                     &self.local_path.to_string_lossy(),
                 ])
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped())
                 .output()?;
@@ -96,6 +104,40 @@ impl GitIndex {
                     msg.trim()
                 )));
             }
+        }
+        Ok(())
+    }
+
+    /// If the existing clone's remote URL doesn't match `self.url`, update it.
+    fn maybe_update_remote(&self) -> Result<()> {
+        let out = Command::new("git")
+            .args([
+                "-C",
+                &self.local_path.to_string_lossy(),
+                "remote",
+                "get-url",
+                "origin",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()?;
+
+        let current = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if current != self.url {
+            Command::new("git")
+                .args([
+                    "-C",
+                    &self.local_path.to_string_lossy(),
+                    "remote",
+                    "set-url",
+                    "origin",
+                    &self.url,
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()?;
         }
         Ok(())
     }
@@ -344,6 +386,71 @@ impl IndexBackend for GitIndex {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    /// git pull/clone must never hang waiting for credentials.
+    /// Verify GIT_TERMINAL_PROMPT=0 is set by trying to clone a nonexistent URL
+    /// and confirming the process exits (rather than blocking on stdin).
+    #[test]
+    fn git_refresh_does_not_prompt_for_credentials() {
+        let tmp = tempdir().unwrap();
+        let index = GitIndex::new(
+            "https://github.com/tejasprabhune/definitely-does-not-exist-bv-test",
+            tmp.path().join("clone"),
+        );
+        // Must complete quickly (not hang on a credential prompt).
+        let result = index.git_refresh();
+        assert!(result.is_err(), "expected clone of nonexistent repo to fail");
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            !msg.is_empty(),
+            "expected a non-empty error message, not a silent hang"
+        );
+    }
+
+    #[test]
+    fn maybe_update_remote_fixes_stale_url() {
+        let tmp = tempdir().unwrap();
+        let repo_path = tmp.path().join("repo");
+
+        // Initialise a bare local repo so we have a valid .git dir.
+        Command::new("git")
+            .args(["init", repo_path.to_str().unwrap()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        Command::new("git")
+            .args([
+                "-C",
+                repo_path.to_str().unwrap(),
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/old-org/old-repo",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+
+        let index = GitIndex::new(
+            "https://github.com/tejasprabhune/bv-registry",
+            repo_path.clone(),
+        );
+        index.maybe_update_remote().unwrap();
+
+        let out = Command::new("git")
+            .args(["-C", repo_path.to_str().unwrap(), "remote", "get-url", "origin"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .unwrap();
+        let url = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        assert_eq!(url, "https://github.com/tejasprabhune/bv-registry");
+    }
 
     #[test]
     fn list_versions_returns_only_valid_semver() {

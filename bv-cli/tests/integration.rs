@@ -16,6 +16,45 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Smoke test: registry clone works without a credential prompt.
+///
+/// Requires network access but no Docker. Run with:
+///   cargo test --test integration registry_smoke -- --include-ignored
+#[test]
+#[ignore = "requires network access to GitHub"]
+fn registry_clone_does_not_hang_on_credential_prompt() {
+    let dir = tempfile::tempdir().expect("project dir");
+    let cache = tempfile::tempdir().expect("cache dir");
+
+    // Use a timeout: if git hangs waiting for a credential prompt the child
+    // process will not exit and this test will time out (fail), not deadlock.
+    let mut child = bv(
+        &["search", "samtools"],
+        dir.path(),
+        cache.path(),
+    )
+    .stdin(std::process::Stdio::null())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped())
+    .spawn()
+    .expect("failed to spawn bv search");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        match child.try_wait().expect("try_wait failed") {
+            Some(status) => {
+                assert!(status.success(), "bv search exited non-zero: {status}");
+                break;
+            }
+            None if std::time::Instant::now() > deadline => {
+                child.kill().ok();
+                panic!("bv search timed out — likely blocked on a git credential prompt");
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(200)),
+        }
+    }
+}
+
 /// Path to the compiled `bv` binary.
 fn bv_bin() -> PathBuf {
     env::current_exe()
