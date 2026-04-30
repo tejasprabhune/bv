@@ -154,10 +154,14 @@ async fn main() -> Result<()> {
             eprintln!("  Repodata snapshot digest: {snapshot_digest}");
         }
 
-        Commands::Push { image: _image, reference } => {
-            eprintln!("  Push to {reference} is not supported without a local OCI tarball implementation yet.");
-            eprintln!("  Use `bv-builder build --output image.tar && bv-builder push` after implementing tarball round-trip.");
-            anyhow::bail!("push from tarball not yet implemented");
+        Commands::Push { image, reference } => {
+            eprintln!("  Loading tarball from {}...", image.display());
+            let loaded = oci::load_from_tarball(&image).context("load OCI tarball")?;
+            eprintln!("  Pushing {} layers to {reference}...", loaded.layers.len());
+            let digest = oci::push(&loaded, &reference).await.context("push image")?;
+            eprintln!("  Pushed: {digest}");
+            std::fs::write("/tmp/push-digest.txt", &digest)
+                .context("write /tmp/push-digest.txt")?;
         }
 
         Commands::Verify { reference, digest } => {

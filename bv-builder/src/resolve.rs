@@ -49,6 +49,7 @@ pub async fn resolve(spec: &BuildSpec) -> Result<ResolvedSpec> {
 }
 
 /// Try each channel in order and return the first match for `pkg_spec`.
+/// Checks the platform-specific subdir first, then falls back to `noarch`.
 async fn resolve_package(
     client: &Client,
     pkg_spec: &PackageSpec,
@@ -56,21 +57,23 @@ async fn resolve_package(
     subdir: &str,
 ) -> Result<ResolvedPackage> {
     for channel in channels {
-        let repodata_url = format!("{channel}/{subdir}/repodata.json");
-        let repodata: RepodataIndex = match client
-            .get(&repodata_url)
-            .send()
-            .await
-        {
-            Ok(resp) if resp.status().is_success() => resp
-                .json()
+        for try_subdir in [subdir, "noarch"] {
+            let repodata_url = format!("{channel}/{try_subdir}/repodata.json");
+            let repodata: RepodataIndex = match client
+                .get(&repodata_url)
+                .send()
                 .await
-                .with_context(|| format!("parse repodata from {repodata_url}"))?,
-            _ => continue,
-        };
+            {
+                Ok(resp) if resp.status().is_success() => resp
+                    .json()
+                    .await
+                    .with_context(|| format!("parse repodata from {repodata_url}"))?,
+                _ => continue,
+            };
 
-        if let Some(pkg) = find_best_match(&repodata, pkg_spec, channel, subdir) {
-            return Ok(pkg);
+            if let Some(pkg) = find_best_match(&repodata, pkg_spec, channel, try_subdir) {
+                return Ok(pkg);
+            }
         }
     }
     bail!(

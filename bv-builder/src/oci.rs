@@ -5,7 +5,80 @@ use oci_client::{
     Reference,
 };
 
-use crate::build::OciImage;
+use crate::build::{OciImage, OciLayer};
+use bv_core::lockfile::LayerDescriptor;
+
+fn registry_auth() -> RegistryAuth {
+    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+        RegistryAuth::Basic("token".into(), token)
+    } else {
+        RegistryAuth::Anonymous
+    }
+}
+
+/// Load an OCI image from a tarball previously saved by `save_oci_tarball`.
+pub fn load_from_tarball(path: &std::path::Path) -> Result<OciImage> {
+    use std::io::Read;
+
+    let f = std::fs::File::open(path)
+        .with_context(|| format!("open tarball {}", path.display()))?;
+    let mut archive = tar::Archive::new(f);
+
+    let mut manifest_bytes: Option<Vec<u8>> = None;
+    let mut blobs: std::collections::HashMap<String, Vec<u8>> = std::collections::HashMap::new();
+
+    for entry in archive.entries().context("read tar entries")? {
+        let mut entry = entry.context("read tar entry")?;
+        let path_str = entry.path().context("get entry path")?.to_string_lossy().into_owned();
+        let mut data = Vec::new();
+        entry.read_to_end(&mut data).context("read entry data")?;
+
+        if path_str == "manifest.json" {
+            manifest_bytes = Some(data);
+        } else if let Some(hex) = path_str.strip_prefix("blobs/sha256/") {
+            blobs.insert(hex.to_string(), data);
+        }
+    }
+
+    let manifest_bytes = manifest_bytes.context("manifest.json not found in tarball")?;
+    let manifest: serde_json::Value = serde_json::from_slice(&manifest_bytes)
+        .context("parse manifest.json")?;
+
+    let config_digest = manifest["config"]["digest"]
+        .as_str()
+        .context("manifest.config.digest missing")?;
+    let config_hex = config_digest.strip_prefix("sha256:").unwrap_or(config_digest);
+    let config = blobs.remove(config_hex)
+        .with_context(|| format!("config blob {config_hex} not found in tarball"))?;
+
+    let layers_json = manifest["layers"].as_array().context("manifest.layers missing")?;
+    let mut layers = Vec::new();
+    for layer_json in layers_json {
+        let digest = layer_json["digest"].as_str().context("layer.digest missing")?;
+        let media_type = layer_json["mediaType"].as_str().context("layer.mediaType missing")?;
+        let size = layer_json["size"].as_u64().context("layer.size missing")?;
+        let hex = digest.strip_prefix("sha256:").unwrap_or(digest);
+        let compressed = blobs.remove(hex)
+            .with_context(|| format!("layer blob {hex} not found in tarball"))?;
+
+        layers.push(OciLayer {
+            compressed,
+            descriptor: LayerDescriptor {
+                digest: digest.to_string(),
+                size,
+                media_type: media_type.to_string(),
+                conda_package: None,
+            },
+        });
+    }
+
+    Ok(OciImage {
+        name: String::new(),
+        version: String::new(),
+        layers,
+        config,
+    })
+}
 
 /// Push an `OciImage` to a registry.
 ///
@@ -24,7 +97,7 @@ pub async fn push(image: &OciImage, reference: &str) -> Result<String> {
     };
 
     let client = Client::new(config);
-    let auth = RegistryAuth::Anonymous;
+    let auth = registry_auth();
 
     let layers: Vec<ImageLayer> = image
         .layers
