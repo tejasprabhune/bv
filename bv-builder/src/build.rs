@@ -3,6 +3,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use bv_core::lockfile::{CondaPackagePin, LayerDescriptor};
+use futures_util::future;
 use oci_client::{
     client::{Client, ClientConfig, ClientProtocol},
     secrets::RegistryAuth,
@@ -96,10 +97,10 @@ pub async fn build(
     let mut layers = fetch_base_layers(base_ref).await
         .with_context(|| format!("fetch base image '{base_ref}'"))?;
 
-    for group in &groups {
-        let layer = build_group_layer(&http, group).await?;
-        layers.push(layer);
-    }
+    let mut pkg_layers: Vec<OciLayer> = future::try_join_all(
+        groups.iter().map(|g| build_group_layer(&http, g))
+    ).await?;
+    layers.append(&mut pkg_layers);
 
     // Meta layer: conda-meta JSON for all packages.
     let meta_layer = build_meta_layer(resolved)?;
@@ -368,8 +369,9 @@ fn create_reproducible_layer(dir: &Path) -> Result<(Vec<u8>, String)> {
 
     let uncompressed_digest = sha256_hex(&uncompressed);
 
-    // zstd level 19 for maximum compression density.
-    let compressed = zstd::encode_all(std::io::Cursor::new(&uncompressed), 19)
+    // zstd level 3: fast enough for CI, still smaller than gzip.
+    // Reproducibility comes from deterministic tar content, not compression level.
+    let compressed = zstd::encode_all(std::io::Cursor::new(&uncompressed), 3)
         .context("zstd compress layer")?;
 
     Ok((compressed, uncompressed_digest))
