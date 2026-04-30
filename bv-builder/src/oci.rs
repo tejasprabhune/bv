@@ -100,34 +100,56 @@ pub async fn push(image: &OciImage, reference: &str) -> Result<String> {
     let client = Client::new(config);
     let auth = registry_auth();
 
-    let layers: Vec<ImageLayer> = image
-        .layers
-        .iter()
-        .map(|l| {
-            ImageLayer::new(l.compressed.clone(), l.descriptor.media_type.clone(), None)
-        })
-        .collect();
+    let mut delay = std::time::Duration::from_secs(5);
+    let mut last_err: Option<anyhow::Error> = None;
 
-    let oci_config = Config::oci_v1(image.config.clone(), None);
+    for attempt in 0..5u32 {
+        if attempt > 0 {
+            eprintln!("  rate limited, retrying in {:?} (attempt {}/5)...", delay, attempt + 1);
+            tokio::time::sleep(delay).await;
+            delay = (delay * 2).min(std::time::Duration::from_secs(60));
+        }
 
-    let resp = client
-        .push(&reference, &layers, oci_config, &auth, None)
-        .await
-        .with_context(|| format!("push image to '{reference}'"))?;
+        // Reconstruct layers/config each attempt; oci-client takes ownership.
+        let layers: Vec<ImageLayer> = image
+            .layers
+            .iter()
+            .map(|l| ImageLayer::new(l.compressed.clone(), l.descriptor.media_type.clone(), None))
+            .collect();
+        let oci_config = Config::oci_v1(image.config.clone(), None);
 
-    // Extract manifest digest. GHCR returns the URL as
-    // `.../manifests/sha256:<hex>` so check the last path segment first,
-    // then fall back to the `@sha256:<hex>` style used by some registries.
-    let digest = resp
-        .manifest_url
-        .rsplit('/')
-        .next()
-        .filter(|s| s.starts_with("sha256:"))
-        .or_else(|| resp.manifest_url.split('@').nth(1))
-        .unwrap_or("unknown")
-        .to_string();
+        match client.push(&reference, &layers, oci_config, &auth, None).await {
+            Ok(resp) => {
+                // Extract manifest digest. GHCR returns the URL as
+                // `.../manifests/sha256:<hex>` so check the last path segment
+                // first, then fall back to the `@sha256:<hex>` style.
+                let digest = resp
+                    .manifest_url
+                    .rsplit('/')
+                    .next()
+                    .filter(|s| s.starts_with("sha256:"))
+                    .or_else(|| resp.manifest_url.split('@').nth(1))
+                    .unwrap_or("unknown")
+                    .to_string();
+                return Ok(digest);
+            }
+            Err(e) if is_rate_limited(&e) => {
+                last_err = Some(anyhow::anyhow!("{e}"));
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("{e}"))
+                    .with_context(|| format!("push image to '{reference}'"));
+            }
+        }
+    }
 
-    Ok(digest)
+    Err(last_err.unwrap())
+        .with_context(|| format!("push image to '{reference}' (rate limit: all retries exhausted)"))
+}
+
+fn is_rate_limited(e: &oci_client::errors::OciDistributionError) -> bool {
+    let s = format!("{e:?}");
+    s.contains("429") || s.contains("TOOMANYREQUESTS")
 }
 
 /// Fetch an image manifest from a registry and verify its digest matches
