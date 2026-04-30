@@ -75,8 +75,8 @@ pub async fn resolve(spec: &BuildSpec) -> Result<ResolvedSpec> {
 
     let base = spec.base.clone().or_else(|| {
         Some(match &spec.platform {
-            crate::spec::Platform::LinuxAmd64 => "docker.io/library/debian:12-slim".to_string(),
-            crate::spec::Platform::LinuxArm64 => "docker.io/library/debian:12-slim".to_string(),
+            crate::spec::Platform::LinuxAmd64 => "ghcr.io/tejasprabhune/bv-base/debian:12-slim".to_string(),
+            crate::spec::Platform::LinuxArm64 => "ghcr.io/tejasprabhune/bv-base/debian:12-slim".to_string(),
         })
     });
 

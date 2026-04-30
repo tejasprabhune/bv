@@ -143,7 +143,15 @@ async fn fetch_base_layers(base_ref: &str) -> Result<Vec<OciLayer>> {
         ..Default::default()
     };
     let client = Client::new(oci_config);
-    let auth = RegistryAuth::Anonymous;
+    let auth = if base_ref.contains("ghcr.io") {
+        if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+            RegistryAuth::Basic("token".into(), token)
+        } else {
+            RegistryAuth::Anonymous
+        }
+    } else {
+        RegistryAuth::Anonymous
+    };
 
     let (manifest, _digest, config_json) = client
         .pull_manifest_and_config(&reference, &auth)
