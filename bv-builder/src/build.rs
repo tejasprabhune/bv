@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use bv_core::lockfile::{CondaPackagePin, LayerDescriptor};
-use futures_util::future;
+use futures_util::StreamExt;
 use oci_client::{
     client::{Client, ClientConfig, ClientProtocol},
     secrets::RegistryAuth,
@@ -86,7 +86,7 @@ pub async fn build(
 
     let http = reqwest::Client::builder()
         .user_agent("bv-builder/0.1")
-        .timeout(std::time::Duration::from_secs(300))
+        .timeout(std::time::Duration::from_secs(600))
         .build()?;
 
     // Pull base image layers first so the container has glibc + dynamic linker.
@@ -97,9 +97,13 @@ pub async fn build(
     let mut layers = fetch_base_layers(base_ref).await
         .with_context(|| format!("fetch base image '{base_ref}'"))?;
 
-    let mut pkg_layers: Vec<OciLayer> = future::try_join_all(
-        groups.iter().map(|g| build_group_layer(&http, g))
-    ).await?;
+    let mut pkg_layers: Vec<OciLayer> = futures_util::stream::iter(groups.iter())
+        .map(|g| build_group_layer(&http, g))
+        .buffer_unordered(8)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
     layers.append(&mut pkg_layers);
 
     // Meta layer: conda-meta JSON for all packages.
