@@ -137,7 +137,7 @@ pub async fn verify(reference: &str, expected_digest: &str) -> Result<()> {
         .with_context(|| format!("parse OCI reference '{reference}'"))?;
 
     let client = Client::new(ClientConfig::default());
-    let auth = RegistryAuth::Anonymous;
+    let auth = registry_auth();
 
     let (_manifest, digest) = client
         .pull_manifest(&reference, &auth)
