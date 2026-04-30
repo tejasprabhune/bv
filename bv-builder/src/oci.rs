@@ -103,14 +103,14 @@ pub async fn push(image: &OciImage, reference: &str) -> Result<String> {
     let client = Client::new(config);
     let auth = registry_auth();
 
-    let mut delay = std::time::Duration::from_secs(5);
+    let mut delay = std::time::Duration::from_secs(30);
     let mut last_err: Option<anyhow::Error> = None;
 
-    for attempt in 0..5u32 {
+    for attempt in 0..8u32 {
         if attempt > 0 {
-            eprintln!("  rate limited, retrying in {:?} (attempt {}/5)...", delay, attempt + 1);
+            eprintln!("  rate limited, retrying in {:?} (attempt {}/8)...", delay, attempt + 1);
             tokio::time::sleep(delay).await;
-            delay = (delay * 2).min(std::time::Duration::from_secs(60));
+            delay = (delay * 2).min(std::time::Duration::from_secs(120));
         }
 
         // Reconstruct layers/config each attempt; oci-client takes ownership.
@@ -147,7 +147,7 @@ pub async fn push(image: &OciImage, reference: &str) -> Result<String> {
     }
 
     Err(last_err.unwrap())
-        .with_context(|| format!("push image to '{reference}' (rate limit: all retries exhausted)"))
+        .with_context(|| format!("push image to '{reference}' (rate limit: all retries exhausted after 8 attempts)"))
 }
 
 fn is_rate_limited(e: &oci_client::errors::OciDistributionError) -> bool {
