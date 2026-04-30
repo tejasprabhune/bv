@@ -27,7 +27,7 @@ struct Cli {
 enum Commands {
     /// Resolve a spec to a fully-pinned package list.
     Resolve {
-        /// Path to the build spec YAML.
+        /// Path to the build spec TOML.
         spec: PathBuf,
         /// Write resolved spec JSON to this file instead of stdout.
         #[arg(long)]
@@ -35,7 +35,7 @@ enum Commands {
     },
     /// Build a factored OCI image from a spec.
     Build {
-        /// Path to the build spec YAML.
+        /// Path to the build spec TOML.
         spec: PathBuf,
         /// Write the OCI image as a tarball to this path.
         #[arg(long)]
@@ -64,7 +64,7 @@ enum Commands {
     },
     /// Compute package popularity from all specs in a registry specs directory.
     ///
-    /// Walks `<specs-dir>/**/*.yaml`, counts package co-occurrences, and writes
+    /// Walks `<specs-dir>/**/*.toml`, counts package co-occurrences, and writes
     /// a `popularity.json` that `bv-builder build --popularity` reads to decide
     /// which packages get their own OCI layer vs. the shared long-tail layer.
     Pack {
@@ -194,7 +194,7 @@ async fn main() -> Result<()> {
 fn load_spec(path: &PathBuf) -> Result<BuildSpec> {
     let s = std::fs::read_to_string(path)
         .with_context(|| format!("read spec '{}'", path.display()))?;
-    serde_yaml::from_str(&s).with_context(|| format!("parse spec '{}'", path.display()))
+    toml::from_str(&s).with_context(|| format!("parse spec '{}'", path.display()))
 }
 
 fn save_oci_tarball(image: &bv_builder::build::OciImage, path: &PathBuf) -> Result<()> {

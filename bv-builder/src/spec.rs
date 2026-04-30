@@ -73,18 +73,19 @@ pub struct EntrypointSpec {
 /// Input spec for `bv-builder build`, mirroring apko's declarative format
 /// but adapted for conda packages.
 ///
-/// Spec YAML example:
-/// ```yaml
-/// name: samtools
-/// version: 1.19.2
-/// channels:
-///   - https://conda.anaconda.org/bioconda
-///   - https://conda.anaconda.org/conda-forge
-/// packages:
-///   - samtools ==1.19.2
-/// entrypoint:
-///   command: /opt/conda/envs/env/bin/samtools
-/// platform: linux/amd64
+/// Spec TOML example:
+/// ```toml
+/// name = "samtools"
+/// version = "1.19.2"
+/// channels = [
+///     "https://conda.anaconda.org/bioconda",
+///     "https://conda.anaconda.org/conda-forge",
+/// ]
+/// packages = ["samtools ==1.19.2"]
+/// platform = "linux/amd64"
+///
+/// [entrypoint]
+/// command = "/opt/conda/envs/env/bin/samtools"
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildSpec {

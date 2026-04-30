@@ -61,7 +61,7 @@ impl PopularityMap {
 
 /// Compute a popularity map from all tool spec directories under `specs_root`.
 ///
-/// Walks `specs_root/**/*.yaml`, parses each as a `BuildSpec`, and counts
+/// Walks `specs_root/**/*.toml`, parses each as a `BuildSpec`, and counts
 /// how many specs declare each package name. The resulting map is sorted
 /// deterministically (by name) inside `save()` via serde_json's map ordering.
 pub fn compute_from_spec_dir(specs_root: &Path) -> anyhow::Result<PopularityMap> {
@@ -69,15 +69,15 @@ pub fn compute_from_spec_dir(specs_root: &Path) -> anyhow::Result<PopularityMap>
 
     for entry in walkdir(specs_root)? {
         let path = entry?;
-        if path.extension().and_then(|e| e.to_str()) != Some("yaml") {
+        if path.extension().and_then(|e| e.to_str()) != Some("toml") {
             continue;
         }
 
         let s = std::fs::read_to_string(&path)
             .with_context(|| format!("read spec '{}'", path.display()))?;
 
-        // Parse only the `packages` field; skip unrelated YAML.
-        let raw: serde_yaml::Value = serde_yaml::from_str(&s)
+        // Parse only the `packages` field; skip unrelated TOML.
+        let raw: toml::Value = toml::from_str(&s)
             .with_context(|| format!("parse spec '{}'", path.display()))?;
 
         let names = extract_package_names(&raw);
@@ -87,9 +87,9 @@ pub fn compute_from_spec_dir(specs_root: &Path) -> anyhow::Result<PopularityMap>
     Ok(map)
 }
 
-/// Extract the bare package names from a parsed spec YAML value.
-fn extract_package_names(yaml: &serde_yaml::Value) -> Vec<String> {
-    let Some(pkgs) = yaml.get("packages").and_then(|v| v.as_sequence()) else {
+/// Extract the bare package names from a parsed spec TOML value.
+fn extract_package_names(yaml: &toml::Value) -> Vec<String> {
+    let Some(pkgs) = yaml.get("packages").and_then(|v| v.as_array()) else {
         return vec![];
     };
 
@@ -141,11 +141,11 @@ mod tests {
 
     #[test]
     fn extract_names_strips_version_constraints() {
-        let yaml: serde_yaml::Value = serde_yaml::from_str(
-            "packages:\n  - samtools ==1.19.2\n  - openssl\n  - bwa >=0.7",
+        let val: toml::Value = toml::from_str(
+            "packages = [\"samtools ==1.19.2\", \"openssl\", \"bwa >=0.7\"]",
         )
         .unwrap();
-        let names = extract_package_names(&yaml);
+        let names = extract_package_names(&val);
         assert_eq!(names, vec!["samtools", "openssl", "bwa"]);
     }
 
