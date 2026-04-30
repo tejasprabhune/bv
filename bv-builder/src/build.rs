@@ -97,9 +97,11 @@ pub async fn build(
     let mut layers = fetch_base_layers(base_ref).await
         .with_context(|| format!("fetch base image '{base_ref}'"))?;
 
+    // buffered (not buffer_unordered) preserves layer input order, which is
+    // required for deterministic manifest digests across rebuilds.
     let mut pkg_layers: Vec<OciLayer> = futures_util::stream::iter(groups.iter())
         .map(|g| build_group_layer(&http, g))
-        .buffer_unordered(8)
+        .buffered(8)
         .collect::<Vec<_>>()
         .await
         .into_iter()
@@ -303,17 +305,13 @@ fn extract_conda_archive(data: &[u8], dest: &Path) -> Result<()> {
 
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i)?;
+        // Only extract pkg- (binaries/libs); skip info- (conda metadata not
+        // needed at container runtime).
         if entry.name().starts_with("pkg-") && entry.name().ends_with(".tar.zst") {
             let mut zstd_bytes = Vec::new();
             entry.read_to_end(&mut zstd_bytes)?;
             let decompressed = zstd::decode_all(std::io::Cursor::new(zstd_bytes))
                 .context("decompress pkg- zstd")?;
-            extract_tar_bytes(&decompressed, dest)?;
-        } else if entry.name().starts_with("info-") && entry.name().ends_with(".tar.zst") {
-            let mut zstd_bytes = Vec::new();
-            entry.read_to_end(&mut zstd_bytes)?;
-            let decompressed = zstd::decode_all(std::io::Cursor::new(zstd_bytes))
-                .context("decompress info- zstd")?;
             extract_tar_bytes(&decompressed, dest)?;
         }
     }
