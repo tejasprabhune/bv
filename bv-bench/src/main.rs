@@ -34,6 +34,9 @@ struct Cli {
     mamba: bool,
 
     #[arg(long)]
+    micromamba: bool,
+
+    #[arg(long)]
     pixi: bool,
 
     #[arg(long)]
@@ -69,6 +72,12 @@ fn main() -> Result<()> {
         match find_conda_like("mamba") {
             Ok(bin) => paths.push(Box::new(CondaLikePath { name: "mamba".into(), bin })),
             Err(e) => eprintln!("warning: skipping mamba ({})", e),
+        }
+    }
+    if cli.micromamba {
+        match find_conda_like("micromamba") {
+            Ok(bin) => paths.push(Box::new(MicromambaPath { bin })),
+            Err(e) => eprintln!("warning: skipping micromamba ({})", e),
         }
     }
     if cli.conda {
@@ -114,28 +123,42 @@ impl InstallPath for BvPath {
         let bv = find_bv()?;
         let registry = std::env::var("BV_REGISTRY").unwrap_or_default();
 
+        // Start clean: fresh work_dir so bv add resolves and writes a new lock.
+        if work_dir.exists() {
+            std::fs::remove_dir_all(work_dir)?;
+        }
+        std::fs::create_dir_all(work_dir)?;
+
+        // Register all tools in one pass (single index refresh + parallel pull).
+        // Any images already in Docker cache are reused; new ones are pulled in parallel.
+        let mut cmd = std::process::Command::new(&bv);
+        cmd.arg("add");
         for tool in &fixture.tools {
-            let mut cmd = std::process::Command::new(&bv);
-            cmd.arg("add").arg(format!("{}@{}", tool.id, tool.version));
-            if !registry.is_empty() {
-                cmd.arg("--registry").arg(&registry);
-            }
-            cmd.current_dir(work_dir);
-            let status = cmd.status()?;
-            if !status.success() {
-                bail!("bv add {} failed", tool.id);
-            }
+            cmd.arg(format!("{}@{}", tool.id, tool.version));
+        }
+        if !registry.is_empty() {
+            cmd.arg("--registry").arg(&registry);
+        }
+        cmd.current_dir(work_dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let status = cmd.status()?;
+        if !status.success() {
+            bail!("bv add failed");
         }
 
-        // bv add only registers tools; images are pulled on first run.
-        // Pre-pull here so cold_run measures only container startup, not download.
-        for tool in &fixture.tools {
-            let _ = std::process::Command::new(&bv)
-                .args(["run", &tool.id, "--", "--version"])
-                .current_dir(work_dir)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
+        // Evict images so the sync below measures a true cold download.
+        evict_docker_images(work_dir);
+
+        // Cold parallel pull. This is the dominant install cost.
+        let status = std::process::Command::new(&bv)
+            .arg("sync")
+            .current_dir(work_dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?;
+        if !status.success() {
+            bail!("bv sync failed");
         }
 
         let footprint = lockfile_image_size(work_dir);
@@ -184,6 +207,36 @@ fn lockfile_image_size(work_dir: &std::path::Path) -> u64 {
                 .map(|n| n as u64)
         })
         .sum()
+}
+
+/// Remove Docker images for all tools recorded in `bv.lock` so the next
+/// `bv run` triggers a cold download from the registry.
+fn evict_docker_images(work_dir: &std::path::Path) {
+    let lock_path = work_dir.join("bv.lock");
+    let contents = match std::fs::read_to_string(&lock_path) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let doc: toml::Value = match toml::from_str(&contents) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    let tools = match doc.get("tools").and_then(|t| t.as_table()) {
+        Some(t) => t,
+        None => return,
+    };
+    for entry in tools.values() {
+        let reference = entry.get("image_reference").and_then(|v| v.as_str());
+        let digest = entry.get("image_digest").and_then(|v| v.as_str());
+        if let (Some(r), Some(d)) = (reference, digest) {
+            let full_ref = format!("{r}@{d}");
+            let _ = std::process::Command::new("docker")
+                .args(["rmi", "-f", &full_ref])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+    }
 }
 
 struct ApptainerPath;
@@ -241,14 +294,17 @@ impl InstallPath for CondaLikePath {
 
     fn install(&self, fixture: &Fixture, work_dir: &std::path::Path) -> Result<(u64, Duration)> {
         let env_dir = work_dir.join("env");
+        // Isolated package cache: forces a cold download instead of hitting
+        // the global ~/miniforge3/pkgs/ cache.
+        let pkgs_dir = work_dir.join("pkgs");
 
         if env_dir.exists() {
-            let _ = std::process::Command::new(&self.bin)
-                .args(["env", "remove", "-p", env_dir.to_str().unwrap(), "--yes"])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
+            std::fs::remove_dir_all(&env_dir).ok();
         }
+        if pkgs_dir.exists() {
+            std::fs::remove_dir_all(&pkgs_dir).ok();
+        }
+        std::fs::create_dir_all(&pkgs_dir)?;
 
         let mut args = vec![
             "create".to_string(),
@@ -261,8 +317,11 @@ impl InstallPath for CondaLikePath {
         }
         args.push("--yes".to_string());
 
+        // CONDA_PKGS_DIRS isolates the package cache to work_dir so each
+        // fixture run downloads fresh rather than hitting ~/miniforge3/pkgs/.
         let status = std::process::Command::new(&self.bin)
             .args(&args)
+            .env("CONDA_PKGS_DIRS", &pkgs_dir)
             .current_dir(work_dir)
             .status()?;
         if !status.success() {
@@ -291,6 +350,73 @@ impl InstallPath for CondaLikePath {
     }
 }
 
+/// micromamba 2.x — same install interface as mamba but `run` uses different flags.
+struct MicromambaPath {
+    bin: PathBuf,
+}
+
+impl InstallPath for MicromambaPath {
+    fn name(&self) -> &str {
+        "micromamba"
+    }
+
+    fn install(&self, fixture: &Fixture, work_dir: &std::path::Path) -> Result<(u64, Duration)> {
+        let env_dir = work_dir.join("env");
+        let pkgs_dir = work_dir.join("pkgs");
+
+        if env_dir.exists() {
+            std::fs::remove_dir_all(&env_dir).ok();
+        }
+        if pkgs_dir.exists() {
+            std::fs::remove_dir_all(&pkgs_dir).ok();
+        }
+        std::fs::create_dir_all(&pkgs_dir)?;
+
+        let mut args = vec![
+            "create".to_string(),
+            "-p".to_string(), env_dir.to_str().unwrap().to_string(),
+            "-c".to_string(), "bioconda".to_string(),
+            "-c".to_string(), "conda-forge".to_string(),
+        ];
+        for tool in &fixture.tools {
+            args.push(format!("{}={}", tool.id, to_conda_version(&tool.version)));
+        }
+        args.push("--yes".to_string());
+
+        let status = std::process::Command::new(&self.bin)
+            .args(&args)
+            .env("CONDA_PKGS_DIRS", &pkgs_dir)
+            // micromamba needs a writable root prefix; point it at work_dir.
+            .env("MAMBA_ROOT_PREFIX", work_dir)
+            .current_dir(work_dir)
+            .status()?;
+        if !status.success() {
+            bail!("micromamba create failed for fixture '{}'", fixture.name);
+        }
+
+        let footprint = dir_size(&env_dir).unwrap_or(0);
+        Ok((footprint, Duration::ZERO))
+    }
+
+    fn cold_run(&self, fixture: &Fixture, work_dir: &std::path::Path) -> Result<Duration> {
+        let tool = fixture.tools.first().expect("non-empty fixture");
+        let env_dir = work_dir.join("env");
+        let start = Instant::now();
+        let status = std::process::Command::new(&self.bin)
+            .args(["run", "-p", env_dir.to_str().unwrap(), &tool.id, "--version"])
+            .env("MAMBA_ROOT_PREFIX", work_dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .current_dir(work_dir)
+            .status()?;
+        let elapsed = start.elapsed();
+        if !status.success() {
+            bail!("cold-run of {} (micromamba) failed", tool.id);
+        }
+        Ok(elapsed)
+    }
+}
+
 struct PixiPath;
 
 impl InstallPath for PixiPath {
@@ -302,6 +428,9 @@ impl InstallPath for PixiPath {
         let pixi_dir = work_dir.join(".pixi");
         let pixi_toml = work_dir.join("pixi.toml");
         let pixi_lock = work_dir.join("pixi.lock");
+        // Isolated rattler cache: prevents hits on the global ~/.rattler cache.
+        let cache_dir = work_dir.join("rattler-cache");
+
         if pixi_dir.exists() {
             std::fs::remove_dir_all(&pixi_dir).ok();
         }
@@ -311,30 +440,29 @@ impl InstallPath for PixiPath {
         if pixi_lock.exists() {
             std::fs::remove_file(&pixi_lock).ok();
         }
+        if cache_dir.exists() {
+            std::fs::remove_dir_all(&cache_dir).ok();
+        }
+
+        let pixi = |args: &[&str]| -> std::process::Command {
+            let mut cmd = std::process::Command::new("pixi");
+            cmd.args(args)
+                .env("RATTLER_CACHE_DIR", &cache_dir)
+                .current_dir(work_dir);
+            cmd
+        };
 
         // Init with conda-forge (default), then add bioconda.
-        let status = std::process::Command::new("pixi")
-            .args(["init", "."])
-            .current_dir(work_dir)
-            .status()?;
-        if !status.success() {
+        if !pixi(&["init", "."]).status()?.success() {
             bail!("pixi init failed");
         }
-        let status = std::process::Command::new("pixi")
-            .args(["project", "channel", "add", "bioconda"])
-            .current_dir(work_dir)
-            .status()?;
-        if !status.success() {
+        if !pixi(&["project", "channel", "add", "bioconda"]).status()?.success() {
             bail!("pixi project channel add bioconda failed");
         }
 
         for tool in &fixture.tools {
             let spec = format!("{}={}", tool.id, to_conda_version(&tool.version));
-            let status = std::process::Command::new("pixi")
-                .args(["add", &spec])
-                .current_dir(work_dir)
-                .status()?;
-            if !status.success() {
+            if !pixi(&["add", &spec]).status()?.success() {
                 bail!("pixi add {} failed", tool.id);
             }
         }

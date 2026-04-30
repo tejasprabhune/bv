@@ -5,6 +5,7 @@ mod mounts;
 mod ops;
 mod progress;
 mod publish;
+mod pull_native;
 mod registry;
 mod runtime_select;
 mod shims;

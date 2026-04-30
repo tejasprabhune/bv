@@ -125,15 +125,23 @@ pub async fn run(
 
         let permit = sem.clone().acquire_owned().await.expect("semaphore closed");
         let rt = runtime.clone();
-        join_set.spawn_blocking(move || {
-            let _permit = permit;
-            let result = rt.pull(&oci_ref, &reporter);
-            PullOutcome {
-                entry,
-                reporter,
-                result,
-            }
-        });
+
+        if oci_ref.registry.contains("ghcr.io") {
+            join_set.spawn(async move {
+                let _permit = permit;
+                let result = crate::pull_native::pull_native(&oci_ref)
+                    .await
+                    .map(bv_runtime::ImageDigest)
+                    .map_err(|e| bv_core::error::BvError::RuntimeError(format!("{e:#}")));
+                PullOutcome { entry, reporter, result }
+            });
+        } else {
+            join_set.spawn_blocking(move || {
+                let _permit = permit;
+                let result = rt.pull(&oci_ref, &reporter);
+                PullOutcome { entry, reporter, result }
+            });
+        }
     }
 
     while let Some(joined) = join_set.join_next().await {
