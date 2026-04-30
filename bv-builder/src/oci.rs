@@ -114,11 +114,15 @@ pub async fn push(image: &OciImage, reference: &str) -> Result<String> {
         .await
         .with_context(|| format!("push image to '{reference}'"))?;
 
-    // Extract manifest digest from the manifest URL (ends with sha256:...).
+    // Extract manifest digest. GHCR returns the URL as
+    // `.../manifests/sha256:<hex>` so check the last path segment first,
+    // then fall back to the `@sha256:<hex>` style used by some registries.
     let digest = resp
         .manifest_url
-        .split('@')
-        .nth(1)
+        .rsplit('/')
+        .next()
+        .filter(|s| s.starts_with("sha256:"))
+        .or_else(|| resp.manifest_url.split('@').nth(1))
         .unwrap_or("unknown")
         .to_string();
 
