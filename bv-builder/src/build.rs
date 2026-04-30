@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use bv_core::lockfile::{CondaPackagePin, LayerDescriptor};
-use futures_util::StreamExt;
+use futures_util::StreamExt as _;
 use oci_client::{
     client::{Client, ClientConfig, ClientProtocol},
     secrets::RegistryAuth,
@@ -192,20 +192,16 @@ async fn fetch_base_layers(base_ref: &str) -> Result<Vec<OciLayer>> {
 }
 
 /// Download and layer a single package group.
+///
+/// Downloads are async; extraction and zstd compression are CPU-bound and
+/// run in spawn_blocking so they don't starve the async executor's I/O threads.
 async fn build_group_layer(client: &reqwest::Client, group: &LayerGroup) -> Result<OciLayer> {
-    let work_dir = tempfile::tempdir().context("create temp dir for layer build")?;
-    let prefix = work_dir.path().join("opt").join("conda");
-    std::fs::create_dir_all(&prefix).context("create conda prefix dir")?;
+    // Phase 1: download all packages in this group concurrently.
+    let downloaded: Vec<(crate::spec::ResolvedPackage, Vec<u8>)> =
+        futures_util::future::try_join_all(
+            group.packages.iter().map(|pkg| download_package(client, pkg))
+        ).await?;
 
-    for pkg in &group.packages {
-        download_and_extract_package(client, pkg, &prefix).await?;
-    }
-
-    let (compressed, uncompressed_digest) = create_reproducible_layer(work_dir.path())?;
-    let digest = format!("sha256:{}", sha256_hex(&compressed));
-    let size = compressed.len() as u64;
-
-    // For single-package groups, attach conda_package metadata.
     let conda_package = if group.packages.len() == 1 {
         let pkg = &group.packages[0];
         Some(CondaPackagePin {
@@ -219,24 +215,41 @@ async fn build_group_layer(client: &reqwest::Client, group: &LayerGroup) -> Resu
         None
     };
 
-    Ok(OciLayer {
-        compressed,
-        uncompressed_digest: format!("sha256:{uncompressed_digest}"),
-        descriptor: LayerDescriptor {
-            digest,
-            size,
-            media_type: "application/vnd.oci.image.layer.v1.tar+zstd".into(),
-            conda_package,
-        },
+    // Phase 2: extract + compress on a blocking thread.
+    tokio::task::spawn_blocking(move || -> Result<OciLayer> {
+        let work_dir = tempfile::tempdir().context("create temp dir for layer build")?;
+        let prefix = work_dir.path().join("opt").join("conda");
+        std::fs::create_dir_all(&prefix).context("create conda prefix dir")?;
+
+        for (pkg, bytes) in &downloaded {
+            extract_package_bytes(pkg, bytes, &prefix)
+                .with_context(|| format!("extract {}", pkg.filename))?;
+        }
+
+        let (compressed, uncompressed_digest) = create_reproducible_layer(work_dir.path())?;
+        let digest = format!("sha256:{}", sha256_hex(&compressed));
+        let size = compressed.len() as u64;
+
+        Ok(OciLayer {
+            compressed,
+            uncompressed_digest: format!("sha256:{uncompressed_digest}"),
+            descriptor: LayerDescriptor {
+                digest,
+                size,
+                media_type: "application/vnd.oci.image.layer.v1.tar+zstd".into(),
+                conda_package,
+            },
+        })
     })
+    .await
+    .context("layer build task panicked")?
 }
 
-/// Download a conda package and extract it into `dest_dir`.
-async fn download_and_extract_package(
+/// Download a conda package and return its raw bytes.
+async fn download_package(
     client: &reqwest::Client,
     pkg: &crate::spec::ResolvedPackage,
-    dest_dir: &Path,
-) -> Result<()> {
+) -> Result<(crate::spec::ResolvedPackage, Vec<u8>)> {
     use futures_util::StreamExt;
 
     let resp = client
@@ -255,30 +268,32 @@ async fn download_and_extract_package(
         bytes.extend_from_slice(&chunk?);
     }
 
-    // Verify sha256 if present.
     if !pkg.sha256.is_empty() {
         let actual = sha256_hex(&bytes);
         if actual != pkg.sha256 {
             anyhow::bail!(
                 "sha256 mismatch for {} ({}): expected {} got {}",
-                pkg.name,
-                pkg.filename,
-                pkg.sha256,
-                actual
+                pkg.name, pkg.filename, pkg.sha256, actual
             );
         }
     }
 
-    // Extract .conda (zip) or .tar.bz2.
-    if pkg.filename.ends_with(".conda") {
-        extract_conda_archive(&bytes, dest_dir)
-            .with_context(|| format!("extract {}", pkg.filename))?;
-    } else if pkg.filename.ends_with(".tar.bz2") {
-        extract_tar_bz2(&bytes, dest_dir)
-            .with_context(|| format!("extract {}", pkg.filename))?;
-    }
+    Ok((pkg.clone(), bytes))
+}
 
-    Ok(())
+/// Extract a downloaded conda package into `dest`.
+fn extract_package_bytes(
+    pkg: &crate::spec::ResolvedPackage,
+    bytes: &[u8],
+    dest: &Path,
+) -> Result<()> {
+    if pkg.filename.ends_with(".conda") {
+        extract_conda_archive(bytes, dest)
+    } else if pkg.filename.ends_with(".tar.bz2") {
+        extract_tar_bz2(bytes, dest)
+    } else {
+        Ok(())
+    }
 }
 
 fn extract_conda_archive(data: &[u8], dest: &Path) -> Result<()> {
