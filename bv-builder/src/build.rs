@@ -402,6 +402,7 @@ fn create_reproducible_layer(dir: &Path) -> Result<(Vec<u8>, String)> {
                 let target = fs::read_link(entry_path)?;
                 header.set_size(0);
                 header.set_entry_type(tar::EntryType::Symlink);
+                header.set_path(rel)?;
                 header.set_link_name(&target)?;
                 header.set_cksum();
                 builder.append(&header, std::io::empty())?;
