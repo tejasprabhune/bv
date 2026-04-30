@@ -58,7 +58,10 @@ pub fn load_from_tarball(path: &std::path::Path) -> Result<OciImage> {
         let media_type = layer_json["mediaType"].as_str().context("layer.mediaType missing")?;
         let size = layer_json["size"].as_u64().context("layer.size missing")?;
         let hex = digest.strip_prefix("sha256:").unwrap_or(digest);
-        let compressed = blobs.remove(hex)
+        // Use get+clone, not remove: the same blob digest can appear multiple
+        // times in a manifest (e.g. empty-package layers all share one digest).
+        let compressed = blobs.get(hex)
+            .cloned()
             .with_context(|| format!("layer blob {hex} not found in tarball"))?;
 
         layers.push(OciLayer {

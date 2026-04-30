@@ -99,13 +99,17 @@ pub async fn build(
 
     // buffered (not buffer_unordered) preserves layer input order, which is
     // required for deterministic manifest digests across rebuilds.
+    // build_group_layer returns None for packages with no extractable files.
     let mut pkg_layers: Vec<OciLayer> = futures_util::stream::iter(groups.iter())
         .map(|g| build_group_layer(&http, g))
         .buffered(8)
         .collect::<Vec<_>>()
         .await
         .into_iter()
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<Option<OciLayer>>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
     layers.append(&mut pkg_layers);
 
     // Meta layer: conda-meta JSON for all packages.
@@ -205,7 +209,9 @@ async fn fetch_base_layers(base_ref: &str) -> Result<Vec<OciLayer>> {
 ///
 /// Downloads are async; extraction and zstd compression are CPU-bound and
 /// run in spawn_blocking so they don't starve the async executor's I/O threads.
-async fn build_group_layer(client: &reqwest::Client, group: &LayerGroup) -> Result<OciLayer> {
+/// Returns None if the package(s) contain no extractable files (e.g. pure
+/// Python namespace packages whose pkg- archive is empty after info- is skipped).
+async fn build_group_layer(client: &reqwest::Client, group: &LayerGroup) -> Result<Option<OciLayer>> {
     // Phase 1: download all packages in this group concurrently.
     let downloaded: Vec<(crate::spec::ResolvedPackage, Vec<u8>)> =
         futures_util::future::try_join_all(
@@ -226,7 +232,7 @@ async fn build_group_layer(client: &reqwest::Client, group: &LayerGroup) -> Resu
     };
 
     // Phase 2: extract + compress on a blocking thread.
-    tokio::task::spawn_blocking(move || -> Result<OciLayer> {
+    tokio::task::spawn_blocking(move || -> Result<Option<OciLayer>> {
         let work_dir = tempfile::tempdir().context("create temp dir for layer build")?;
         let prefix = work_dir.path().join("opt").join("conda");
         std::fs::create_dir_all(&prefix).context("create conda prefix dir")?;
@@ -236,11 +242,18 @@ async fn build_group_layer(client: &reqwest::Client, group: &LayerGroup) -> Resu
                 .with_context(|| format!("extract {}", pkg.filename))?;
         }
 
+        // Skip packages that extracted no files — only directory scaffolding
+        // (opt/conda/) would produce a deterministic empty layer shared by all
+        // such packages, causing duplicate digest collisions in the manifest.
+        if !prefix_has_files(&prefix) {
+            return Ok(None);
+        }
+
         let (compressed, uncompressed_digest) = create_reproducible_layer(work_dir.path())?;
         let digest = format!("sha256:{}", sha256_hex(&compressed));
         let size = compressed.len() as u64;
 
-        Ok(OciLayer {
+        Ok(Some(OciLayer {
             compressed,
             uncompressed_digest: format!("sha256:{uncompressed_digest}"),
             descriptor: LayerDescriptor {
@@ -249,10 +262,24 @@ async fn build_group_layer(client: &reqwest::Client, group: &LayerGroup) -> Resu
                 media_type: "application/vnd.oci.image.layer.v1.tar+zstd".into(),
                 conda_package,
             },
-        })
+        }))
     })
     .await
     .context("layer build task panicked")?
+}
+
+fn prefix_has_files(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else { return false };
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else { continue };
+        if meta.is_file() {
+            return true;
+        }
+        if meta.is_dir() && prefix_has_files(&entry.path()) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Download a conda package and return its raw bytes.

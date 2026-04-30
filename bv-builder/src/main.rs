@@ -203,8 +203,14 @@ fn save_oci_tarball(image: &bv_builder::build::OciImage, path: &PathBuf) -> Resu
     let mut builder = tar::Builder::new(f);
 
     // Write each layer blob at blobs/sha256/<hex>.
+    // Deduplicate: multiple layers can share the same digest (e.g. empty
+    // packages all produce an identical layer). Write each blob only once.
+    let mut written: std::collections::HashSet<String> = std::collections::HashSet::new();
     for layer in &image.layers {
         let hex = layer.descriptor.digest.strip_prefix("sha256:").unwrap_or(&layer.descriptor.digest);
+        if !written.insert(hex.to_string()) {
+            continue;
+        }
         let entry_path = format!("blobs/sha256/{hex}");
         let mut header = tar::Header::new_ustar();
         header.set_size(layer.compressed.len() as u64);
