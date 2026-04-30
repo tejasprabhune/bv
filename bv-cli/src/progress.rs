@@ -13,8 +13,7 @@ pub struct CliProgressReporter {
 impl CliProgressReporter {
     fn styled(bar: ProgressBar, mp: MultiProgress) -> Self {
         bar.set_style(
-            // 2-space indent matches the surrounding `Pulling` / `Added` status lines.
-            ProgressStyle::with_template("  {spinner:.cyan} {msg}")
+            ProgressStyle::with_template("  {spinner:.cyan} {msg}  [{elapsed}]")
                 .unwrap()
                 .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
@@ -36,10 +35,15 @@ impl CliProgressReporter {
 }
 
 impl ProgressReporter for CliProgressReporter {
-    fn update(&self, message: &str, _current: Option<u64>, _total: Option<u64>) {
-        if !message.is_empty() {
-            self.bar.set_message(message.to_string());
+    fn update(&self, message: &str, current: Option<u64>, total: Option<u64>) {
+        if message.is_empty() {
+            return;
         }
+        let msg = match (current, total) {
+            (Some(done), Some(n)) if n > 0 => format!("{message}  {done} / {n} layers"),
+            _ => message.to_string(),
+        };
+        self.bar.set_message(msg);
     }
 
     fn finish(&self, message: &str) {

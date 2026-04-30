@@ -61,7 +61,7 @@ impl ContainerRuntime for DockerRuntime {
 
     fn pull(&self, image: &OciRef, progress: &dyn ProgressReporter) -> Result<ImageDigest> {
         let image_arg = image.docker_arg();
-        progress.update(&format!("Pulling {image_arg}"), None, None);
+        progress.update(&image_arg, None, None);
 
         let mut child = Command::new("docker")
             .args(["pull", &image_arg])
@@ -83,16 +83,38 @@ impl ContainerRuntime for DockerRuntime {
             s
         });
 
-        // Parse docker pull stdout line-by-line for progress and the digest.
+        // Parse docker pull stdout line-by-line for layer progress and the digest.
+        // Layer lifecycle: "Pulling fs layer" | "Already exists" → "Pull complete"
         let mut pull_digest: Option<String> = None;
+        let mut total_layers: u64 = 0;
+        let mut done_layers: u64 = 0;
+
         for line in BufReader::new(stdout).lines() {
             let line = line.map_err(BvError::Io)?;
             let trimmed = line.trim();
-            // "Digest: sha256:abc123"
+
             if let Some(d) = trimmed.strip_prefix("Digest: ") {
                 pull_digest = Some(d.to_string());
+                continue;
             }
-            progress.update(trimmed, None, None);
+
+            // Count layers as they're announced; "Already exists" layers count
+            // as both total and immediately done.
+            if trimmed.ends_with(": Pulling fs layer") {
+                total_layers += 1;
+            } else if trimmed.ends_with(": Already exists") {
+                total_layers += 1;
+                done_layers += 1;
+            } else if trimmed.ends_with(": Pull complete") {
+                done_layers += 1;
+            }
+
+            let (cur, tot) = if total_layers > 0 {
+                (Some(done_layers), Some(total_layers))
+            } else {
+                (None, None)
+            };
+            progress.update(&image_arg, cur, tot);
         }
 
         let status = child.wait()?;
@@ -102,7 +124,7 @@ impl ContainerRuntime for DockerRuntime {
             return Err(classify_pull_error(&stderr_output, &image_arg));
         }
 
-        progress.finish(""); // outer "Added X" line is the summary; avoid redundant URL spam
+        progress.finish("");
 
         let digest = match pull_digest {
             Some(d) => d,
@@ -473,5 +495,60 @@ mod tests {
     fn current_uid_gid_returns_some_on_unix() {
         let got = current_uid_gid();
         assert!(got.is_some());
+    }
+
+    /// Simulate the layer-counting logic used in `pull()` to verify the
+    /// counts stay correct across typical docker pull output patterns.
+    fn count_layers(lines: &[&str]) -> (u64, u64) {
+        let mut total: u64 = 0;
+        let mut done: u64 = 0;
+        for line in lines {
+            let t = line.trim();
+            if t.ends_with(": Pulling fs layer") {
+                total += 1;
+            } else if t.ends_with(": Already exists") {
+                total += 1;
+                done += 1;
+            } else if t.ends_with(": Pull complete") {
+                done += 1;
+            }
+        }
+        (done, total)
+    }
+
+    #[test]
+    fn layer_count_fresh_pull() {
+        let lines = [
+            "abc123: Pulling fs layer",
+            "def456: Pulling fs layer",
+            "abc123: Downloading",
+            "abc123: Pull complete",
+            "def456: Pull complete",
+            "Digest: sha256:deadbeef",
+        ];
+        assert_eq!(count_layers(&lines), (2, 2));
+    }
+
+    #[test]
+    fn layer_count_partially_cached() {
+        let lines = [
+            "abc123: Already exists",
+            "def456: Pulling fs layer",
+            "def456: Pull complete",
+        ];
+        // total=2, done=2 (already-exists counts as immediately done)
+        assert_eq!(count_layers(&lines), (2, 2));
+    }
+
+    #[test]
+    fn layer_count_in_progress() {
+        let lines = [
+            "abc123: Pulling fs layer",
+            "def456: Pulling fs layer",
+            "ghi789: Pulling fs layer",
+            "abc123: Pull complete",
+            // def456 and ghi789 still downloading
+        ];
+        assert_eq!(count_layers(&lines), (1, 3));
     }
 }

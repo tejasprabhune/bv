@@ -31,12 +31,12 @@ pub fn print_hardware_mismatch(tool_id: &str, version: &str, mismatches: &[Hardw
     if has_gpu_mismatch && cfg!(target_os = "macos") {
         eprintln!(
             "{} on macOS, GPU tools can be installed but cannot run locally",
-            "help: ".if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string()),
+            "help:".if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string()),
         );
     } else {
         eprintln!(
             "{} hardware requirements not met",
-            "help: ".if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string()),
+            "help:".if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string()),
         );
     }
     eprintln!(
