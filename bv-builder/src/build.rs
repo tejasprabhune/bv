@@ -369,9 +369,8 @@ fn create_reproducible_layer(dir: &Path) -> Result<(Vec<u8>, String)> {
 
     let uncompressed_digest = sha256_hex(&uncompressed);
 
-    // zstd level 3: fast enough for CI, still smaller than gzip.
-    // Reproducibility comes from deterministic tar content, not compression level.
-    let compressed = zstd::encode_all(std::io::Cursor::new(&uncompressed), 3)
+    // zstd level 19 for maximum compression density.
+    let compressed = zstd::encode_all(std::io::Cursor::new(&uncompressed), 19)
         .context("zstd compress layer")?;
 
     Ok((compressed, uncompressed_digest))
