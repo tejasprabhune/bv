@@ -13,6 +13,7 @@ pub struct BenchResult {
     pub footprint_bytes: u64,
     #[serde(with = "duration_secs")]
     pub cold_run_duration: Duration,
+    pub error: Option<String>,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -52,15 +53,27 @@ impl BenchReport {
         );
         println!("{}", "-".repeat(81));
         for r in &self.results {
-            println!(
-                "{:<12} {:<15} {:>10} {:>14.2} {:>14.1} {:>12.3}",
-                r.path_name,
-                r.fixture_name,
-                r.tool_count,
-                r.install_secs(),
-                r.footprint_mb(),
-                r.cold_run_secs(),
-            );
+            if r.error.is_some() {
+                println!(
+                    "{:<12} {:<15} {:>10} {:>14.2} {:>14} {:>12}",
+                    r.path_name,
+                    r.fixture_name,
+                    r.tool_count,
+                    r.install_secs(),
+                    "n/a",
+                    "n/a",
+                );
+            } else {
+                println!(
+                    "{:<12} {:<15} {:>10} {:>14.2} {:>14.1} {:>12.3}",
+                    r.path_name,
+                    r.fixture_name,
+                    r.tool_count,
+                    r.install_secs(),
+                    r.footprint_mb(),
+                    r.cold_run_secs(),
+                );
+            }
         }
     }
 }

@@ -47,11 +47,40 @@ pub fn run_suite(
             std::fs::create_dir_all(&work_dir).expect("create work_dir");
 
             let install_start = Instant::now();
-            let (footprint_bytes, _install_dur) =
-                path.install(fixture, &work_dir).unwrap_or((0, Duration::ZERO));
+            let install_result = path.install(fixture, &work_dir);
             let install_duration = install_start.elapsed();
 
-            let cold_run_duration = path.cold_run(fixture, &work_dir).unwrap_or(Duration::ZERO);
+            let (footprint_bytes, install_error) = match install_result {
+                Ok((bytes, _)) => (bytes, None),
+                Err(e) => {
+                    eprintln!(
+                        "  install failed [{}/{}]: {}",
+                        path.name(),
+                        fixture.name,
+                        e
+                    );
+                    (0, Some(e.to_string()))
+                }
+            };
+
+            let (cold_run_duration, cold_run_error) = if install_error.is_none() {
+                match path.cold_run(fixture, &work_dir) {
+                    Ok(d) => (d, None),
+                    Err(e) => {
+                        eprintln!(
+                            "  cold-run failed [{}/{}]: {}",
+                            path.name(),
+                            fixture.name,
+                            e
+                        );
+                        (Duration::ZERO, Some(e.to_string()))
+                    }
+                }
+            } else {
+                (Duration::ZERO, None)
+            };
+
+            let error = install_error.or(cold_run_error);
 
             BenchResult {
                 fixture_name: fixture.name.clone(),
@@ -60,6 +89,7 @@ pub fn run_suite(
                 install_duration,
                 footprint_bytes,
                 cold_run_duration,
+                error,
                 timestamp: chrono::Utc::now(),
             }
         })
