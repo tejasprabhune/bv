@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::Context;
+use serde_json::Value;
 use owo_colors::{OwoColorize, Stream};
 
 use bv_core::cache::CacheLayout;
@@ -20,19 +21,41 @@ pub fn run() -> anyhow::Result<()> {
     let mut blocking_issues = 0;
 
     section("Runtime");
-    match DockerRuntime.health_check() {
+    let docker_ok = match DockerRuntime.health_check() {
         Ok(info) => {
-            let server = info
-                .extra
-                .get("server_version")
-                .map(|v| format!("  server {}", v.dimmed()))
-                .unwrap_or_default();
+            let server_ver = info.extra.get("server_version").cloned().unwrap_or_default();
+            let server = if server_ver.is_empty() {
+                String::new()
+            } else {
+                format!("  server {}", server_ver.dimmed())
+            };
             kv("docker", &format!("{}{}", info.version, server));
+
+            let major: u32 = server_ver
+                .split('.')
+                .next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            if major > 0 && major < 28 {
+                eprintln!(
+                    "    {:KEY_W$} {}",
+                    "",
+                    format!(
+                        "⚠ Docker 28+ recommended for native GHCR pull (bv sync ghcr.io/...)"
+                    )
+                    .if_supports_color(Stream::Stderr, |t| t.yellow().to_string())
+                );
+            }
+
+            check_ghcr_credentials();
+            true
         }
         Err(_) => {
             kv_dim("docker", "not available");
+            false
         }
-    }
+    };
+    let _ = docker_ok;
 
     let cache = CacheLayout::new();
     let apptainer_rt = ApptainerRuntime::new(cache.sif_dir());
@@ -311,6 +334,70 @@ fn kv_dim(key: &str, value: &str) {
         key.if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
         value.if_supports_color(Stream::Stderr, |t| t.dimmed().to_string())
     );
+}
+
+fn check_ghcr_credentials() {
+    let config_path = match dirs_config_json_path() {
+        Some(p) => p,
+        None => {
+            kv_dim(
+                "ghcr.io",
+                "no ~/.docker/config.json — run `docker login ghcr.io` to pull private images",
+            );
+            return;
+        }
+    };
+
+    if !config_path.exists() {
+        kv_dim(
+            "ghcr.io",
+            "no ~/.docker/config.json — run `docker login ghcr.io` to pull private images",
+        );
+        return;
+    }
+
+    let configured = std::fs::read_to_string(&config_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .map(|json| ghcr_configured(&json))
+        .unwrap_or(false);
+
+    if !configured {
+        kv_dim(
+            "ghcr.io",
+            "no ghcr.io credentials — run `docker login ghcr.io` to pull private images",
+        );
+    } else {
+        kv_dim("ghcr.io", "credentials configured");
+    }
+}
+
+fn dirs_config_json_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(std::path::PathBuf::from(home).join(".docker").join("config.json"))
+}
+
+fn ghcr_configured(json: &Value) -> bool {
+    if let Some(helpers) = json.get("credHelpers").and_then(|v| v.as_object()) {
+        if helpers.contains_key("ghcr.io") {
+            return true;
+        }
+    }
+    if json
+        .get("credsStore")
+        .and_then(|v| v.as_str())
+        .map(|s| !s.is_empty())
+        .unwrap_or(false)
+    {
+        // A global creds store may hold ghcr.io; treat as configured.
+        return true;
+    }
+    if let Some(auths) = json.get("auths").and_then(|v| v.as_object()) {
+        if auths.contains_key("ghcr.io") {
+            return true;
+        }
+    }
+    false
 }
 
 // Filesystem helpers

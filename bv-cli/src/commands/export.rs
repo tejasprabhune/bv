@@ -229,4 +229,142 @@ resolved_at = "2026-04-29T00:00:00Z"
         assert_eq!(exported, 2);
         assert_eq!(skipped_ids, vec!["genie2".to_string()]);
     }
+
+    #[test]
+    fn empty_lockfile_emits_valid_yaml() {
+        let lock_toml = r#"
+version = 1
+
+[metadata]
+bv_version = "0.1.17"
+generated_at = "2026-04-29T00:00:00Z"
+"#;
+        let (yaml, exported, skipped_ids) = render_for_test("empty-proj", lock_toml);
+
+        assert!(yaml.starts_with("name: empty-proj\n"));
+        assert!(yaml.contains("channels:\n"));
+        assert!(yaml.contains("dependencies:\n"));
+        assert!(!yaml.contains("bioconda::"));
+        assert!(!yaml.contains("# Tools that have no known conda"));
+        assert_eq!(exported, 0);
+        assert!(skipped_ids.is_empty());
+    }
+
+    #[test]
+    fn all_skipped_tools_produce_comment_only() {
+        let lock_toml = r#"
+version = 1
+
+[metadata]
+bv_version = "0.1.17"
+generated_at = "2026-04-29T00:00:00Z"
+
+[tools.genie2]
+tool_id = "genie2"
+version = "1.0.0"
+image_reference = "ghcr.io/tejasprabhune/genie2:1.0.0"
+image_digest = "sha256:aaa"
+resolved_at = "2026-04-29T00:00:00Z"
+
+[tools.proteinmpnn]
+tool_id = "proteinmpnn"
+version = "0.1"
+image_reference = "rosettacommons/proteinmpnn:0.1"
+image_digest = "sha256:bbb"
+resolved_at = "2026-04-29T00:00:00Z"
+"#;
+        let (yaml, exported, skipped_ids) = render_for_test("custom-proj", lock_toml);
+
+        assert!(yaml.contains("dependencies:\n"));
+        assert!(!yaml.contains("  - bioconda::"));
+        assert!(yaml.contains("# Tools that have no known conda/bioconda equivalent"));
+        assert!(yaml.contains("#   - genie2"));
+        assert!(yaml.contains("#   - proteinmpnn"));
+        assert_eq!(exported, 0);
+        assert_eq!(skipped_ids.len(), 2);
+    }
+
+    #[test]
+    fn tools_are_sorted_alphabetically() {
+        let lock_toml = r#"
+version = 1
+
+[metadata]
+bv_version = "0.1.17"
+generated_at = "2026-04-29T00:00:00Z"
+
+[tools.zebra]
+tool_id = "zebra"
+version = "3.0"
+image_reference = "quay.io/biocontainers/zebra:3.0--h1234_1"
+image_digest = "sha256:zzz"
+resolved_at = "2026-04-29T00:00:00Z"
+
+[tools.mango]
+tool_id = "mango"
+version = "2.0"
+image_reference = "quay.io/biocontainers/mango:2.0--h5678_1"
+image_digest = "sha256:mmm"
+resolved_at = "2026-04-29T00:00:00Z"
+
+[tools.alpha]
+tool_id = "alpha"
+version = "1.0"
+image_reference = "quay.io/biocontainers/alpha:1.0--h9abc_1"
+image_digest = "sha256:aaa"
+resolved_at = "2026-04-29T00:00:00Z"
+"#;
+        let (yaml, exported, _) = render_for_test("sorted-proj", lock_toml);
+
+        let alpha_pos = yaml.find("bioconda::alpha").unwrap();
+        let mango_pos = yaml.find("bioconda::mango").unwrap();
+        let zebra_pos = yaml.find("bioconda::zebra").unwrap();
+        assert!(alpha_pos < mango_pos && mango_pos < zebra_pos);
+        assert_eq!(exported, 3);
+    }
+
+    #[test]
+    fn version_with_build_hash_stripped() {
+        let lock_toml = r#"
+version = 1
+
+[metadata]
+bv_version = "0.1.17"
+generated_at = "2026-04-29T00:00:00Z"
+
+[tools.samtools]
+tool_id = "samtools"
+version = "1.21"
+image_reference = "quay.io/biocontainers/samtools:1.21--h50ea8bc_1"
+image_digest = "sha256:abc"
+resolved_at = "2026-04-29T00:00:00Z"
+"#;
+        let (yaml, exported, _) = render_for_test("hash-proj", lock_toml);
+
+        assert!(yaml.contains("  - bioconda::samtools=1.21\n"));
+        assert!(!yaml.contains("h50ea8bc"));
+        assert_eq!(exported, 1);
+    }
+
+    #[test]
+    fn version_without_build_hash() {
+        let lock_toml = r#"
+version = 1
+
+[metadata]
+bv_version = "0.1.17"
+generated_at = "2026-04-29T00:00:00Z"
+
+[tools.samtools]
+tool_id = "samtools"
+version = "1.21"
+image_reference = "quay.io/biocontainers/samtools:1.21"
+image_digest = "sha256:abc"
+resolved_at = "2026-04-29T00:00:00Z"
+"#;
+        let (yaml, exported, _) = render_for_test("nohash-proj", lock_toml);
+
+        assert!(yaml.contains("  - bioconda::samtools=1.21\n"));
+        assert_eq!(exported, 1);
+    }
 }

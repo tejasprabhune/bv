@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{BvError, Result};
 
+pub const LOCKFILE_FORMAT_VERSION: u32 = 1;
+
 pub type BinaryIndex = BTreeMap<String, String>;
 
 // SpecKind
@@ -193,7 +195,7 @@ pub struct Lockfile {
 impl Lockfile {
     pub fn new() -> Self {
         Self {
-            version: 1,
+            version: LOCKFILE_FORMAT_VERSION,
             metadata: LockfileMetadata::default(),
             tools: BTreeMap::new(),
             binary_index: BTreeMap::new(),
@@ -201,7 +203,15 @@ impl Lockfile {
     }
 
     pub fn from_toml_str(s: &str) -> Result<Self> {
-        toml::from_str(s).map_err(|e| BvError::LockfileParse(e.to_string()))
+        let lockfile: Self = toml::from_str(s).map_err(|e| BvError::LockfileParse(e.to_string()))?;
+        if lockfile.version > LOCKFILE_FORMAT_VERSION {
+            return Err(BvError::LockfileParse(format!(
+                "bv.lock uses format version {}, but this bv only supports up to version {}.\n\
+                Upgrade bv: curl -fsSL https://raw.githubusercontent.com/tejasprabhune/bv/main/install.sh | sh",
+                lockfile.version, LOCKFILE_FORMAT_VERSION
+            )));
+        }
+        Ok(lockfile)
     }
 
     pub fn to_toml_string(&self) -> Result<String> {
@@ -381,6 +391,20 @@ mod tests {
         let mut b = a.clone();
         b.layers[0].digest = "sha256:different".into();
         assert!(!a.is_equivalent(&b));
+    }
+
+    #[test]
+    fn rejects_future_format_version() {
+        let toml = r#"
+version = 99
+
+[metadata]
+bv_version = "0.0.0"
+generated_at = "2024-01-01T00:00:00Z"
+"#;
+        let err = Lockfile::from_toml_str(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("format version"), "expected 'format version' in error: {msg}");
     }
 
     #[test]
