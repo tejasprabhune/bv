@@ -497,6 +497,9 @@ fn build_config(resolved: &ResolvedSpec, layers: &[OciLayer]) -> Result<Vec<u8>>
         "created": "1970-01-01T00:00:00Z",
         "author": "bv-builder",
         "config": {
+            "Env": [
+                "PATH=/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            ],
             "Labels": {
                 "org.opencontainers.image.title": &resolved.name,
                 "org.opencontainers.image.version": &resolved.version,
