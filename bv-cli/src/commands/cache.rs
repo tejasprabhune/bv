@@ -40,9 +40,7 @@ pub fn run(cmd: &crate::cli::CacheCommands) -> anyhow::Result<()> {
     }
 }
 
-// =====================================================================
 // size
-// =====================================================================
 
 pub fn run_size() -> anyhow::Result<()> {
     let cache = CacheLayout::new();
@@ -111,9 +109,7 @@ pub fn run_size() -> anyhow::Result<()> {
     Ok(())
 }
 
-// =====================================================================
 // list
-// =====================================================================
 
 pub fn run_list() -> anyhow::Result<()> {
     let cache = CacheLayout::new();
@@ -237,9 +233,7 @@ fn inventory(root: &Path) -> Vec<(&'static str, String, u64, PathBuf)> {
     out
 }
 
-// =====================================================================
 // prune
-// =====================================================================
 
 #[derive(Debug, Default, Clone)]
 pub struct PruneSummary {
@@ -648,9 +642,7 @@ fn print_summary(s: &PruneSummary) {
     );
 }
 
-// =====================================================================
 // Reachability discovery
-// =====================================================================
 
 pub fn gather_reachable(cwd: Option<&Path>) -> Reachable {
     let mut reach = Reachable::default();
@@ -710,9 +702,7 @@ fn collect_locks_under(root: &Path, reach: &mut Reachable) {
     walk(root, 6, reach);
 }
 
-// =====================================================================
 // Docker image helpers
-// =====================================================================
 
 struct DockerImage {
     /// The reference we pass to `docker rmi` (repo:tag or repo@digest).
@@ -787,9 +777,7 @@ fn docker_unreferenced_images(reachable: &Reachable) -> Vec<DockerImage> {
     candidates
 }
 
-// =====================================================================
 // Filesystem helpers
-// =====================================================================
 
 fn dir_size(path: &Path) -> std::io::Result<u64> {
     let mut total: u64 = 0;
@@ -856,9 +844,7 @@ fn display_path(p: &Path) -> String {
     p.display().to_string()
 }
 
-// =====================================================================
 // tests
-// =====================================================================
 
 #[cfg(test)]
 mod tests {
