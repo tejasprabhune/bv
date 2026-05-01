@@ -290,11 +290,10 @@ pub fn run_prune(
     }
 
     let cwd = std::env::current_dir().ok();
-    let reachable = if all {
-        Reachable::default()
-    } else {
-        gather_reachable(cwd.as_deref())
-    };
+    // Always gather from lockfiles so we can identify which Docker images bv owns.
+    // For --all we still need the full known set; remove_all=true just skips the
+    // "is it currently referenced?" exemption check inside the function.
+    let reachable = gather_reachable(cwd.as_deref());
 
     // Plan removals.
     let plan = plan_prune(&root, &reachable, all, keep_recent)?;
@@ -306,12 +305,9 @@ pub fn run_prune(
     let total_bytes: u64 = plan.items.iter().map(|i| i.size).sum::<u64>()
         + tmp_plan.items.iter().map(|i| i.size).sum::<u64>();
 
-    // Docker images to remove: those whose digest isn't referenced by any known lockfile.
-    let docker_candidates = if all {
-        docker_unreferenced_images(&Reachable::default())
-    } else {
-        docker_unreferenced_images(&reachable)
-    };
+    // Docker images: only consider images bv knows about (in any lockfile).
+    // remove_all=true also removes currently-referenced images.
+    let docker_candidates = docker_unreferenced_images(&reachable, all);
 
     let total_items = plan.items.len() + tmp_plan.items.len();
     let total_bytes: u64 = plan.items.iter().map(|i| i.size).sum::<u64>()
@@ -711,15 +707,13 @@ struct DockerImage {
     id: String,
 }
 
-/// Return Docker images whose digest does not appear in any known lockfile.
+/// Return Docker images that bv pulled and should be removed.
 ///
-/// Only images that match a known bv image reference pattern are considered
-/// (those listed in any reachable lockfile's `image_references` set, plus any
-/// image whose ID matches a reachable digest). Images unknown to bv are left
-/// alone — we only clean up what bv pulled.
-fn docker_unreferenced_images(reachable: &Reachable) -> Vec<DockerImage> {
-    // `docker images --format "{{.Repository}}:{{.Tag}}\t{{.Digest}}\t{{.ID}}"``
-    // Each line: "repo:tag  sha256:digest  sha256:id"
+/// Only images that appear in at least one known lockfile are ever touched —
+/// we never remove Docker images that bv didn't pull. If `remove_all` is true,
+/// every known bv image is a candidate; otherwise only images not referenced by
+/// any currently-known lockfile are candidates.
+fn docker_unreferenced_images(reachable: &Reachable, remove_all: bool) -> Vec<DockerImage> {
     let Ok(out) = std::process::Command::new("docker")
         .args([
             "images",
@@ -748,21 +742,18 @@ fn docker_unreferenced_images(reachable: &Reachable) -> Vec<DockerImage> {
         let digest = parts[1]; // "sha256:..." or "<none>"
         let id = parts[2];     // "sha256:..." full image ID
 
-        // Only consider images that bv knows about (appear in at least one lockfile).
+        // Hard guard: only touch images bv knows about. If this image isn't in
+        // any lockfile we've discovered, it's not ours — skip unconditionally.
         let is_bv_image = reachable.image_references.contains(ref_tag)
             || (!digest.is_empty() && digest != "<none>" && reachable.digests.contains(digest));
-
-        if !is_bv_image && !reachable.image_references.is_empty() {
-            // Image not in any known lockfile's reference list — skip, not ours.
-            // (If reachable is empty, --all was passed; prune everything bv-related
-            //  which we can't identify without the lockfiles, so skip safely.)
+        if !is_bv_image {
             continue;
         }
 
-        let referenced = (!digest.is_empty() && digest != "<none>" && reachable.digests.contains(digest))
-            || reachable.image_references.contains(ref_tag);
+        let referenced = reachable.image_references.contains(ref_tag)
+            || (!digest.is_empty() && digest != "<none>" && reachable.digests.contains(digest));
 
-        if !referenced {
+        if !referenced || remove_all {
             candidates.push(DockerImage {
                 display_ref: if digest != "<none>" {
                     format!("{ref_tag}@{digest}")
