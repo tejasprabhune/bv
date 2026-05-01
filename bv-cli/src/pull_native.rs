@@ -97,11 +97,11 @@ async fn fetch_bearer_token(oci_ref: &OciRef) -> Result<String> {
         req = req.basic_auth(user, Some(pass));
     }
 
-    let resp: serde_json::Value = req
+    let resp = req
         .send()
         .await
         .context("fetch bearer token")?
-        .json()
+        .json::<serde_json::Value>()
         .await
         .context("parse bearer token response")?;
 

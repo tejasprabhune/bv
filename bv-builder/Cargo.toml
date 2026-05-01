@@ -21,11 +21,11 @@ sha2 = "0.11"
 hex = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream", "json"] }
 flate2 = "1"
 zstd = "0.13"
 tar = "0.4"
-oci-client = { version = "0.14", default-features = false, features = ["rustls-tls"] }
+oci-client = { version = "0.16", default-features = false, features = ["rustls-tls"] }
 bv-core = { version = "0.1.0", path = "../bv-core" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

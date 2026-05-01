@@ -603,32 +603,18 @@ pub fn apply_plan(plan: &PrunePlan, tmp_plan: &PrunePlan) -> anyhow::Result<Prun
 }
 
 fn print_summary(s: &PruneSummary) {
-    println!(
-        "  Removed   {:>3} SIFs        {}",
-        s.sifs_removed,
-        format_size(s.sif_bytes)
-    );
-    println!(
-        "  Removed   {:>3} manifests   {}",
-        s.manifests_removed,
-        format_size(s.manifest_bytes)
-    );
+    let removed = "Removed".if_supports_color(Stream::Stdout, |t| t.green().bold().to_string());
+    println!("  {removed}   {:>3} SIFs        {}", s.sifs_removed, format_size(s.sif_bytes));
+    println!("  {removed}   {:>3} manifests   {}", s.manifests_removed, format_size(s.manifest_bytes));
     if s.indexes_removed > 0 {
-        println!(
-            "  Removed   {:>3} indexes     {}",
-            s.indexes_removed,
-            format_size(s.index_bytes)
-        );
+        println!("  {removed}   {:>3} indexes     {}", s.indexes_removed, format_size(s.index_bytes));
     }
     if s.tmp_removed > 0 {
-        println!(
-            "  Removed   {:>3} tmp entries {}",
-            s.tmp_removed,
-            format_size(s.tmp_bytes)
-        );
+        println!("  {removed}   {:>3} tmp entries {}", s.tmp_removed, format_size(s.tmp_bytes));
     }
     println!(
-        "  Total freed             {}",
+        "  {}  {}",
+        "Total freed".if_supports_color(Stream::Stdout, |t| t.bold().to_string()),
         format_size(s.total_bytes())
     );
 }
