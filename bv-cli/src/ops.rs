@@ -177,12 +177,21 @@ pub fn pull_and_make_entry(
     cache: &CacheLayout,
     runtime: &AnyRuntime,
 ) -> anyhow::Result<LockfileEntry> {
-    if let Some(factored) = &resolved.manifest.tool.factored {
+    let entry = if let Some(factored) = &resolved.manifest.tool.factored {
         if !factored.image_digest.is_empty() {
-            return pull_and_make_entry_factored(resolved, factored, reporter, cache, runtime);
+            pull_and_make_entry_factored(resolved, factored, reporter, cache, runtime)?
+        } else {
+            pull_and_make_entry_legacy(resolved, reporter, cache, runtime)?
         }
-    }
-    pull_and_make_entry_legacy(resolved, reporter, cache, runtime)
+    } else {
+        pull_and_make_entry_legacy(resolved, reporter, cache, runtime)?
+    };
+    let _ = bv_core::owned_images::record(
+        &cache.owned_images_path(),
+        &entry.image_reference,
+        &entry.image_digest,
+    );
+    Ok(entry)
 }
 
 fn pull_and_make_entry_legacy(

@@ -290,28 +290,23 @@ pub fn run_prune(
     }
 
     let cwd = std::env::current_dir().ok();
-    // Always gather from lockfiles so we can identify which Docker images bv owns.
-    // For --all we still need the full known set; remove_all=true just skips the
-    // "is it currently referenced?" exemption check inside the function.
     let reachable = gather_reachable(cwd.as_deref());
 
-    // Plan removals.
+    // Plan filesystem removals.
     let plan = plan_prune(&root, &reachable, all, keep_recent)?;
-
-    // Always-on tmp sweep regardless of dry-run/all.
     let tmp_plan = plan_tmp(&root.join("tmp"));
 
     let total_items = plan.items.len() + tmp_plan.items.len();
     let total_bytes: u64 = plan.items.iter().map(|i| i.size).sum::<u64>()
         + tmp_plan.items.iter().map(|i| i.size).sum::<u64>();
 
-    // Docker images: only consider images bv knows about (in any lockfile).
-    // remove_all=true also removes currently-referenced images.
-    let docker_candidates = docker_unreferenced_images(&reachable, all);
+    // Load the persistent ownership record. This is the authoritative list of
+    // every Docker image bv has ever pulled — it survives `bv remove`.
+    let owned_path = cache.owned_images_path();
+    let owned = bv_core::owned_images::OwnedImages::load(&owned_path);
 
-    let total_items = plan.items.len() + tmp_plan.items.len();
-    let total_bytes: u64 = plan.items.iter().map(|i| i.size).sum::<u64>()
-        + tmp_plan.items.iter().map(|i| i.size).sum::<u64>();
+    // Docker image candidates: owned by bv and (if !all) not in any current lockfile.
+    let docker_candidates = docker_unreferenced_images(&owned, &reachable, all);
 
     if total_items == 0 && docker_candidates.is_empty() {
         println!("  nothing to prune");
@@ -335,7 +330,6 @@ pub fn run_prune(
         return Ok(());
     }
 
-    let docker_display: Vec<_> = docker_candidates.iter().map(|i| i.display_ref.clone()).collect();
     let confirm_msg = match (total_items, docker_candidates.len()) {
         (0, d) => format!("  Remove {d} Docker image{}? [y/N] ", if d == 1 { "" } else { "s" }),
         (n, 0) => format!("  Remove {n} cache item{}, free {}? [y/N] ",
@@ -361,9 +355,9 @@ pub fn run_prune(
     let summary = apply_plan(&plan, &tmp_plan)?;
     print_summary(&summary);
 
-    for img in &docker_display {
+    for img in &docker_candidates {
         let ok = std::process::Command::new("docker")
-            .args(["rmi", img])
+            .args(["rmi", &img.display_ref])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -371,16 +365,17 @@ pub fn run_prune(
             .map(|s| s.success())
             .unwrap_or(false);
         if ok {
+            let _ = bv_core::owned_images::remove_by_digest(&owned_path, &img.digest);
             println!(
                 "  {} Docker image {}",
                 "Removed".if_supports_color(Stream::Stdout, |t| t.green().bold().to_string()),
-                img,
+                img.display_ref,
             );
         } else {
             println!(
                 "  {} could not remove Docker image {} (may be in use or Docker unavailable)",
                 "warning:".if_supports_color(Stream::Stdout, |t| t.yellow().bold().to_string()),
-                img,
+                img.display_ref,
             );
         }
     }
@@ -703,17 +698,28 @@ fn collect_locks_under(root: &Path, reach: &mut Reachable) {
 struct DockerImage {
     /// The reference we pass to `docker rmi` (repo:tag or repo@digest).
     display_ref: String,
-    /// The full image ID / digest as reported by `docker images`.
-    id: String,
+    /// Full image ID from `docker images --no-trunc`, used to remove from owned-images.txt.
+    digest: String,
 }
 
-/// Return Docker images that bv pulled and should be removed.
+/// Return Docker images that bv pulled and are eligible for removal.
 ///
-/// Only images that appear in at least one known lockfile are ever touched —
-/// we never remove Docker images that bv didn't pull. If `remove_all` is true,
-/// every known bv image is a candidate; otherwise only images not referenced by
-/// any currently-known lockfile are candidates.
-fn docker_unreferenced_images(reachable: &Reachable, remove_all: bool) -> Vec<DockerImage> {
+/// Ownership is determined by `owned` (the persistent `owned-images.txt` record,
+/// written every time bv pulls an image). Only owned images are ever touched —
+/// this is what prevents bv from removing unrelated Docker images.
+///
+/// `reachable` is the set of images currently referenced by known lockfiles.
+/// When `remove_all` is false, referenced images are exempt from removal.
+/// When `remove_all` is true, all owned images are candidates.
+fn docker_unreferenced_images(
+    owned: &bv_core::owned_images::OwnedImages,
+    reachable: &Reachable,
+    remove_all: bool,
+) -> Vec<DockerImage> {
+    if owned.is_empty() && !remove_all {
+        return vec![];
+    }
+
     let Ok(out) = std::process::Command::new("docker")
         .args([
             "images",
@@ -742,27 +748,29 @@ fn docker_unreferenced_images(reachable: &Reachable, remove_all: bool) -> Vec<Do
         let digest = parts[1]; // "sha256:..." or "<none>"
         let id = parts[2];     // "sha256:..." full image ID
 
-        // Hard guard: only touch images bv knows about. If this image isn't in
-        // any lockfile we've discovered, it's not ours — skip unconditionally.
-        let is_bv_image = reachable.image_references.contains(ref_tag)
-            || (!digest.is_empty() && digest != "<none>" && reachable.digests.contains(digest));
-        if !is_bv_image {
+        // Ownership check: only touch images bv has recorded pulling.
+        let is_owned = owned.references.contains(ref_tag)
+            || (!digest.is_empty() && digest != "<none>" && owned.digests.contains(digest))
+            || (!id.is_empty() && owned.digests.contains(id));
+        if !is_owned {
             continue;
         }
 
-        let referenced = reachable.image_references.contains(ref_tag)
-            || (!digest.is_empty() && digest != "<none>" && reachable.digests.contains(digest));
-
-        if !referenced || remove_all {
-            candidates.push(DockerImage {
-                display_ref: if digest != "<none>" {
-                    format!("{ref_tag}@{digest}")
-                } else {
-                    ref_tag.to_string()
-                },
-                id: id.to_string(),
-            });
+        // Exemption check: skip images still in an active lockfile (unless --all).
+        if !remove_all {
+            let in_active_lockfile = reachable.image_references.contains(ref_tag)
+                || (!digest.is_empty() && digest != "<none>" && reachable.digests.contains(digest));
+            if in_active_lockfile {
+                continue;
+            }
         }
+
+        let display_ref = if digest != "<none>" {
+            format!("{ref_tag}@{digest}")
+        } else {
+            ref_tag.to_string()
+        };
+        candidates.push(DockerImage { display_ref, digest: id.to_string() });
     }
 
     candidates

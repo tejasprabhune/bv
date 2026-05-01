@@ -61,6 +61,12 @@ impl CacheLayout {
     pub fn tmp_dir(&self) -> PathBuf {
         self.root.join("tmp")
     }
+
+    /// `<root>/owned-images.txt` - persistent record of every image bv has pulled.
+    /// Used by `bv cache prune` to identify bv-owned Docker images.
+    pub fn owned_images_path(&self) -> PathBuf {
+        self.root.join("owned-images.txt")
+    }
 }
 
 impl Default for CacheLayout {

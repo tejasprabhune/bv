@@ -167,6 +167,12 @@ pub async fn run(
                         short_digest(&pulled_digest.0),
                     ));
                 } else {
+                    let cache = bv_core::cache::CacheLayout::new();
+                    let _ = bv_core::owned_images::record(
+                        &cache.owned_images_path(),
+                        &entry.image_reference,
+                        &entry.image_digest,
+                    );
                     try_restore_manifest(&entry);
                     reporter.println(&format!(
                         "  {} {} {}  {}",
