@@ -5,7 +5,7 @@
 # kernel regardless of glibc version (HPC nodes, GPU instances, old distros).
 set -eu
 
-REPO="mlberkeley/bv"
+REPO="tejasprabhune/bv"
 BIN_NAME="bv"
 
 # Allow override via env var (useful for CI or custom setups).
