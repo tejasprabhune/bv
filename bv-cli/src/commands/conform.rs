@@ -223,11 +223,11 @@ pub async fn run_all(
         eprintln!("  {}  {}@{}", outcome.colored(), id, version);
         if let Outcome::Fail { messages, .. } = &outcome {
             for m in messages {
-                eprintln!("        {m}");
+                eprintln!("      {m}");
             }
         }
         if let Outcome::Error(msg) = &outcome {
-            eprintln!("        {msg}");
+            eprintln!("      {msg}");
         }
         results.push((id, version, outcome));
     }
@@ -257,8 +257,7 @@ fn run_one(
     };
     if verbose {
         eprintln!(
-            "  {} image pulled ({})",
-            "ok".if_supports_color(Stream::Stderr, |t| t.green().to_string()),
+            "    image pulled ({})",
             &image_digest.0[..image_digest.0.len().min(20)]
         );
     }
@@ -269,16 +268,15 @@ fn run_one(
     };
 
     if verbose {
-        let label = if result.passed {
-            "ok".if_supports_color(Stream::Stderr, |t| t.green().to_string())
-                .to_string()
-        } else {
-            "fail"
-                .if_supports_color(Stream::Stderr, |t| t.red().to_string())
-                .to_string()
-        };
         for msg in &result.messages {
-            eprintln!("    {label} {msg}");
+            if result.passed {
+                eprintln!("    {msg}");
+            } else {
+                eprintln!(
+                    "    {} {msg}",
+                    "fail".if_supports_color(Stream::Stderr, |t| t.red().to_string())
+                );
+            }
         }
     }
 

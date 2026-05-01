@@ -267,13 +267,17 @@ fn pull_and_make_entry_factored(
 ) -> anyhow::Result<LockfileEntry> {
     use bv_core::lockfile::{CondaPackagePin, LayerDescriptor};
 
-    reporter.println(&format!(
-        "  {} {} ({} layers)",
-        "Pulling".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string()),
-        format!("{}@{}", resolved.tool_id, resolved.manifest.tool.version)
-            .if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
-        factored.layers.len(),
-    ));
+    let tool_label = format!("{}@{}", resolved.tool_id, resolved.manifest.tool.version);
+    let tool_label = tool_label.if_supports_color(Stream::Stderr, |t| t.bold().to_string());
+    let pulling = "Pulling".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string());
+    if factored.layers.is_empty() {
+        reporter.println(&format!("  {pulling} {tool_label}"));
+    } else {
+        reporter.println(&format!(
+            "  {pulling} {tool_label} ({} layers)",
+            factored.layers.len()
+        ));
+    }
 
     let layer_specs: Vec<LayerSpec> = factored
         .layers
