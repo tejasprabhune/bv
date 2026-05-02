@@ -137,14 +137,12 @@ impl BvLock {
 fn atomic_write(path: &Path, content: &str) -> Result<()> {
     let parent = path.parent().unwrap_or(Path::new("."));
     let tmp = tmp_path(parent);
-    fs::write(&tmp, content).map_err(|e| {
+    fs::write(&tmp, content).inspect_err(|_| {
         // Best-effort cleanup of the staging file before bubbling up.
         let _ = fs::remove_file(&tmp);
-        e
     })?;
-    fs::rename(&tmp, path).map_err(|e| {
+    fs::rename(&tmp, path).inspect_err(|_| {
         let _ = fs::remove_file(&tmp);
-        e
     })?;
     Ok(())
 }

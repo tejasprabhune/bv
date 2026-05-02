@@ -156,7 +156,7 @@ pub async fn run(
                         .is_some_and(|f| !f.image_digest.is_empty())
                 {
                     eprintln!(
-                        "  {} {} has been rebuilt as a factored image — \
+                        "  {} {} has been rebuilt as a factored image; \
                          re-run `bv add {}` to migrate to per-package layers and enable deduplication",
                         "hint:".if_supports_color(Stream::Stderr, |t| t.cyan().to_string()),
                         tool_id,
@@ -399,7 +399,7 @@ pub fn short_digest(digest: &str) -> &str {
 /// Returns `true` when the image identified by `digest` (e.g. `sha256:abc…`)
 /// is present in the local Docker image store.
 ///
-/// Returns `false` on any error — Docker not running, image absent, etc. —
+/// Returns `false` on any error (Docker not running, image absent, etc.),
 /// so callers treat an unknown state as "needs a pull".
 fn image_present_in_docker(digest: &str) -> bool {
     std::process::Command::new("docker")

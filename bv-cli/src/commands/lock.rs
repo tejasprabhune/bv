@@ -61,7 +61,7 @@ pub async fn run(check: bool, registry_flag: Option<&str>) -> anyhow::Result<()>
                 if existing.is_equivalent_to(&new_lock) {
                     eprintln!(
                         "  {} bv.lock is up to date ({} tool{})",
-                        "ok".if_supports_color(Stream::Stderr, |t| t.green().to_string()),
+                        "ok".if_supports_color(Stream::Stderr, |t| t.green().bold().to_string()),
                         new_lock.tools.len(),
                         if new_lock.tools.len() == 1 { "" } else { "s" }
                     );

@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use oci_client::{
-    client::{Client, ClientConfig, ImageLayer, Config},
-    secrets::RegistryAuth,
     Reference,
+    client::{Client, ClientConfig, Config, ImageLayer},
+    secrets::RegistryAuth,
 };
 
 use crate::build::{OciImage, OciLayer};
@@ -20,8 +20,8 @@ fn registry_auth() -> RegistryAuth {
 pub fn load_from_tarball(path: &std::path::Path) -> Result<OciImage> {
     use std::io::Read;
 
-    let f = std::fs::File::open(path)
-        .with_context(|| format!("open tarball {}", path.display()))?;
+    let f =
+        std::fs::File::open(path).with_context(|| format!("open tarball {}", path.display()))?;
     let mut archive = tar::Archive::new(f);
 
     let mut manifest_bytes: Option<Vec<u8>> = None;
@@ -29,7 +29,11 @@ pub fn load_from_tarball(path: &std::path::Path) -> Result<OciImage> {
 
     for entry in archive.entries().context("read tar entries")? {
         let mut entry = entry.context("read tar entry")?;
-        let path_str = entry.path().context("get entry path")?.to_string_lossy().into_owned();
+        let path_str = entry
+            .path()
+            .context("get entry path")?
+            .to_string_lossy()
+            .into_owned();
         let mut data = Vec::new();
         entry.read_to_end(&mut data).context("read entry data")?;
 
@@ -41,26 +45,36 @@ pub fn load_from_tarball(path: &std::path::Path) -> Result<OciImage> {
     }
 
     let manifest_bytes = manifest_bytes.context("manifest.json not found in tarball")?;
-    let manifest: serde_json::Value = serde_json::from_slice(&manifest_bytes)
-        .context("parse manifest.json")?;
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&manifest_bytes).context("parse manifest.json")?;
 
     let config_digest = manifest["config"]["digest"]
         .as_str()
         .context("manifest.config.digest missing")?;
-    let config_hex = config_digest.strip_prefix("sha256:").unwrap_or(config_digest);
-    let config = blobs.remove(config_hex)
+    let config_hex = config_digest
+        .strip_prefix("sha256:")
+        .unwrap_or(config_digest);
+    let config = blobs
+        .remove(config_hex)
         .with_context(|| format!("config blob {config_hex} not found in tarball"))?;
 
-    let layers_json = manifest["layers"].as_array().context("manifest.layers missing")?;
+    let layers_json = manifest["layers"]
+        .as_array()
+        .context("manifest.layers missing")?;
     let mut layers = Vec::new();
     for layer_json in layers_json {
-        let digest = layer_json["digest"].as_str().context("layer.digest missing")?;
-        let media_type = layer_json["mediaType"].as_str().context("layer.mediaType missing")?;
+        let digest = layer_json["digest"]
+            .as_str()
+            .context("layer.digest missing")?;
+        let media_type = layer_json["mediaType"]
+            .as_str()
+            .context("layer.mediaType missing")?;
         let size = layer_json["size"].as_u64().context("layer.size missing")?;
         let hex = digest.strip_prefix("sha256:").unwrap_or(digest);
         // Use get+clone, not remove: the same blob digest can appear multiple
         // times in a manifest (e.g. empty-package layers all share one digest).
-        let compressed = blobs.get(hex)
+        let compressed = blobs
+            .get(hex)
             .cloned()
             .with_context(|| format!("layer blob {hex} not found in tarball"))?;
 
@@ -108,7 +122,11 @@ pub async fn push(image: &OciImage, reference: &str) -> Result<String> {
 
     for attempt in 0..8u32 {
         if attempt > 0 {
-            eprintln!("  rate limited, retrying in {:?} (attempt {}/8)...", delay, attempt + 1);
+            eprintln!(
+                "  rate limited, retrying in {:?} (attempt {}/8)...",
+                delay,
+                attempt + 1
+            );
             tokio::time::sleep(delay).await;
             delay = (delay * 2).min(std::time::Duration::from_secs(120));
         }
@@ -121,7 +139,10 @@ pub async fn push(image: &OciImage, reference: &str) -> Result<String> {
             .collect();
         let oci_config = Config::oci_v1(image.config.clone(), None);
 
-        match client.push(&reference, &layers, oci_config, &auth, None).await {
+        match client
+            .push(&reference, &layers, oci_config, &auth, None)
+            .await
+        {
             Ok(resp) => {
                 // Extract manifest digest. GHCR returns the URL as
                 // `.../manifests/sha256:<hex>` so check the last path segment
@@ -146,8 +167,9 @@ pub async fn push(image: &OciImage, reference: &str) -> Result<String> {
         }
     }
 
-    Err(last_err.unwrap())
-        .with_context(|| format!("push image to '{reference}' (rate limit: all retries exhausted after 8 attempts)"))
+    Err(last_err.unwrap()).with_context(|| {
+        format!("push image to '{reference}' (rate limit: all retries exhausted after 8 attempts)")
+    })
 }
 
 fn is_rate_limited(e: &oci_client::errors::OciDistributionError) -> bool {

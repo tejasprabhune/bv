@@ -1,6 +1,6 @@
 use std::collections::{HashSet, VecDeque};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use reqwest::Client;
 
 use crate::spec::{BuildSpec, PackageSpec, Platform, ResolvedPackage, ResolvedSpec};
@@ -30,8 +30,7 @@ pub async fn resolve(spec: &BuildSpec) -> Result<ResolvedSpec> {
     let mut resolved_names: HashSet<String> = HashSet::new();
 
     // (name, is_direct)
-    let mut queue: VecDeque<(PackageSpec, bool)> =
-        direct.into_iter().map(|p| (p, true)).collect();
+    let mut queue: VecDeque<(PackageSpec, bool)> = direct.into_iter().map(|p| (p, true)).collect();
 
     while let Some((pkg_spec, is_direct)) = queue.pop_front() {
         if resolved_names.contains(&pkg_spec.name) || is_virtual_package(&pkg_spec.name) {
@@ -49,10 +48,7 @@ pub async fn resolve(spec: &BuildSpec) -> Result<ResolvedSpec> {
         {
             Ok(r) => r,
             Err(e) if !is_direct => {
-                eprintln!(
-                    "warning: skipping transitive dep '{}': {e}",
-                    pkg_spec.name
-                );
+                eprintln!("warning: skipping transitive dep '{}': {e}", pkg_spec.name);
                 resolved_names.insert(pkg_spec.name.clone());
                 continue;
             }
@@ -60,12 +56,11 @@ pub async fn resolve(spec: &BuildSpec) -> Result<ResolvedSpec> {
         };
 
         for dep_str in &resolved.depends {
-            if let Some(dep_spec) = parse_dep_spec(dep_str) {
-                if !resolved_names.contains(&dep_spec.name)
-                    && !is_virtual_package(&dep_spec.name)
-                {
-                    queue.push_back((dep_spec, false));
-                }
+            if let Some(dep_spec) = parse_dep_spec(dep_str)
+                && !resolved_names.contains(&dep_spec.name)
+                && !is_virtual_package(&dep_spec.name)
+            {
+                queue.push_back((dep_spec, false));
             }
         }
 
@@ -75,8 +70,12 @@ pub async fn resolve(spec: &BuildSpec) -> Result<ResolvedSpec> {
 
     let base = spec.base.clone().or_else(|| {
         Some(match &spec.platform {
-            crate::spec::Platform::LinuxAmd64 => "ghcr.io/tejasprabhune/bv-base/debian:12-slim".to_string(),
-            crate::spec::Platform::LinuxArm64 => "ghcr.io/tejasprabhune/bv-base/debian:12-slim".to_string(),
+            crate::spec::Platform::LinuxAmd64 => {
+                "ghcr.io/tejasprabhune/bv-base/debian:12-slim".to_string()
+            }
+            crate::spec::Platform::LinuxArm64 => {
+                "ghcr.io/tejasprabhune/bv-base/debian:12-slim".to_string()
+            }
         })
     });
 
@@ -170,16 +169,13 @@ fn find_best_match(
         .packages_conda
         .iter()
         .chain(repodata.packages.iter())
-        .filter(|(_, rec)| {
-            rec.name == pkg_spec.name && version_matches(&rec.version, spec_str)
-        })
+        .filter(|(_, rec)| rec.name == pkg_spec.name && version_matches(&rec.version, spec_str))
         .map(|(fname, rec)| (fname.as_str(), rec))
         .collect();
 
     // Sort by version descending, then build descending → pick latest.
     candidates.sort_by(|(_, a), (_, b)| {
-        compare_conda_version(&b.version, &a.version)
-            .then(b.build_number.cmp(&a.build_number))
+        compare_conda_version(&b.version, &a.version).then(b.build_number.cmp(&a.build_number))
     });
 
     candidates.first().map(|(filename, rec)| {
@@ -222,14 +218,14 @@ fn version_matches(version: &str, spec: &str) -> bool {
             if compare_conda_version(version, bound.trim()) != std::cmp::Ordering::Less {
                 return false;
             }
-        } else if let Some(exact) = part.strip_prefix("==") {
-            if version != exact.trim() {
-                return false;
-            }
-        } else if let Some(ne) = part.strip_prefix("!=") {
-            if version == ne.trim() {
-                return false;
-            }
+        } else if let Some(exact) = part.strip_prefix("==")
+            && version != exact.trim()
+        {
+            return false;
+        } else if let Some(ne) = part.strip_prefix("!=")
+            && version == ne.trim()
+        {
+            return false;
         }
         // Unknown operator: skip conservatively
     }

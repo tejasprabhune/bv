@@ -61,11 +61,7 @@ pub async fn run(command: &str, args: &[String], no_sync: bool) -> anyhow::Resul
 /// 2. Else if any tool image is missing locally, run `bv sync` to fetch.
 /// 3. Else if shims are missing/empty but the lockfile has tools, write shims.
 /// 4. Else: silent fast path.
-async fn auto_sync(
-    cwd: &Path,
-    bv_toml_path: &Path,
-    bv_lock_path: &Path,
-) -> anyhow::Result<()> {
+async fn auto_sync(cwd: &Path, bv_toml_path: &Path, bv_lock_path: &Path) -> anyhow::Result<()> {
     let lockfile = BvLock::from_path(bv_lock_path).context("failed to read bv.lock")?;
 
     if bv_toml_path.exists() && lockfile_is_stale(bv_toml_path, bv_lock_path)? {
@@ -103,8 +99,7 @@ fn lockfile_is_stale(bv_toml_path: &Path, bv_lock_path: &Path) -> anyhow::Result
 }
 
 fn mtime_of(path: &Path) -> anyhow::Result<SystemTime> {
-    let meta = fs::metadata(path)
-        .with_context(|| format!("failed to stat {}", path.display()))?;
+    let meta = fs::metadata(path).with_context(|| format!("failed to stat {}", path.display()))?;
     let mtime = meta
         .modified()
         .with_context(|| format!("failed to read mtime of {}", path.display()))?;
@@ -140,8 +135,8 @@ fn shims_missing_or_empty(cwd: &Path) -> anyhow::Result<bool> {
     if !bin_dir.exists() {
         return Ok(true);
     }
-    let mut iter = fs::read_dir(&bin_dir)
-        .with_context(|| format!("failed to read {}", bin_dir.display()))?;
+    let mut iter =
+        fs::read_dir(&bin_dir).with_context(|| format!("failed to read {}", bin_dir.display()))?;
     Ok(iter.next().is_none())
 }
 

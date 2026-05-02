@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use bv_bench::{
     fixture::Fixture,
     harness::{BenchFlags, InstallPath, run_suite},
@@ -70,7 +70,10 @@ fn main() -> Result<()> {
     }
     if cli.mamba {
         match find_conda_like("mamba") {
-            Ok(bin) => paths.push(Box::new(CondaLikePath { name: "mamba".into(), bin })),
+            Ok(bin) => paths.push(Box::new(CondaLikePath {
+                name: "mamba".into(),
+                bin,
+            })),
             Err(e) => eprintln!("warning: skipping mamba ({})", e),
         }
     }
@@ -82,7 +85,10 @@ fn main() -> Result<()> {
     }
     if cli.conda {
         match find_conda_like("conda") {
-            Ok(bin) => paths.push(Box::new(CondaLikePath { name: "conda".into(), bin })),
+            Ok(bin) => paths.push(Box::new(CondaLikePath {
+                name: "conda".into(),
+                bin,
+            })),
             Err(e) => eprintln!("warning: skipping conda ({})", e),
         }
     }
@@ -251,7 +257,12 @@ impl InstallPath for ApptainerPath {
         let registry = std::env::var("BV_REGISTRY").unwrap_or_default();
         for tool in &fixture.tools {
             let mut cmd = std::process::Command::new(&bv);
-            cmd.args(["add", &format!("{}@{}", tool.id, tool.version), "--runtime", "apptainer"]);
+            cmd.args([
+                "add",
+                &format!("{}@{}", tool.id, tool.version),
+                "--runtime",
+                "apptainer",
+            ]);
             if !registry.is_empty() {
                 cmd.arg("--registry").arg(&registry);
             }
@@ -308,9 +319,12 @@ impl InstallPath for CondaLikePath {
 
         let mut args = vec![
             "create".to_string(),
-            "-p".to_string(), env_dir.to_str().unwrap().to_string(),
-            "-c".to_string(), "bioconda".to_string(),
-            "-c".to_string(), "conda-forge".to_string(),
+            "-p".to_string(),
+            env_dir.to_str().unwrap().to_string(),
+            "-c".to_string(),
+            "bioconda".to_string(),
+            "-c".to_string(),
+            "conda-forge".to_string(),
         ];
         for tool in &fixture.tools {
             args.push(format!("{}={}", tool.id, to_conda_version(&tool.version)));
@@ -337,7 +351,13 @@ impl InstallPath for CondaLikePath {
         let env_dir = work_dir.join("env");
         let start = Instant::now();
         let status = std::process::Command::new(&self.bin)
-            .args(["run", "-p", env_dir.to_str().unwrap(), &tool.id, "--version"])
+            .args([
+                "run",
+                "-p",
+                env_dir.to_str().unwrap(),
+                &tool.id,
+                "--version",
+            ])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .current_dir(work_dir)
@@ -350,7 +370,7 @@ impl InstallPath for CondaLikePath {
     }
 }
 
-/// micromamba 2.x — same install interface as mamba but `run` uses different flags.
+/// micromamba 2.x; same install interface as mamba but `run` uses different flags.
 struct MicromambaPath {
     bin: PathBuf,
 }
@@ -374,9 +394,12 @@ impl InstallPath for MicromambaPath {
 
         let mut args = vec![
             "create".to_string(),
-            "-p".to_string(), env_dir.to_str().unwrap().to_string(),
-            "-c".to_string(), "bioconda".to_string(),
-            "-c".to_string(), "conda-forge".to_string(),
+            "-p".to_string(),
+            env_dir.to_str().unwrap().to_string(),
+            "-c".to_string(),
+            "bioconda".to_string(),
+            "-c".to_string(),
+            "conda-forge".to_string(),
         ];
         for tool in &fixture.tools {
             args.push(format!("{}={}", tool.id, to_conda_version(&tool.version)));
@@ -403,7 +426,13 @@ impl InstallPath for MicromambaPath {
         let env_dir = work_dir.join("env");
         let start = Instant::now();
         let status = std::process::Command::new(&self.bin)
-            .args(["run", "-p", env_dir.to_str().unwrap(), &tool.id, "--version"])
+            .args([
+                "run",
+                "-p",
+                env_dir.to_str().unwrap(),
+                &tool.id,
+                "--version",
+            ])
             .env("MAMBA_ROOT_PREFIX", work_dir)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -456,7 +485,10 @@ impl InstallPath for PixiPath {
         if !pixi(&["init", "."]).status()?.success() {
             bail!("pixi init failed");
         }
-        if !pixi(&["project", "channel", "add", "bioconda"]).status()?.success() {
+        if !pixi(&["project", "channel", "add", "bioconda"])
+            .status()?
+            .success()
+        {
             bail!("pixi project channel add bioconda failed");
         }
 

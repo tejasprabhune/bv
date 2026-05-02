@@ -23,8 +23,8 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
 
     if !bv_lock_path.exists() {
         anyhow::bail!(
-            "No bv.lock found in this directory.\n\
-             Run `bv add {tool}` first."
+            "no bv.lock found in this directory\n\
+             run `bv add {tool}` first"
         );
     }
 
@@ -79,7 +79,7 @@ pub async fn run(tool: &str, args: &[String], backend: Option<&str>) -> anyhow::
     };
 
     // Build the OciRef with pinned digest for reproducible execution.
-    // Keep the tag — it must agree with what `bv sync` pulls (sync.rs also
+    // Keep the tag; it must agree with what `bv sync` pulls (sync.rs also
     // keeps the tag) so the apptainer backend, which keys SIF lookups by
     // tag-context rather than registry digest, can find the local image.
     let mut image: OciRef = entry
@@ -261,7 +261,7 @@ pub fn info(tool: &str) -> anyhow::Result<()> {
     let bv_lock_path = cwd.join("bv.lock");
 
     if !bv_lock_path.exists() {
-        anyhow::bail!("No bv.lock found. Run `bv add {tool}` first.");
+        anyhow::bail!("no bv.lock found; run `bv add {tool}` first");
     }
 
     let lockfile = BvLock::from_path(&bv_lock_path)?;

@@ -58,7 +58,7 @@ pub fn run(format: &str, output: Option<&Path>) -> anyhow::Result<()> {
         let ids: Vec<&str> = skipped.iter().map(|(id, _)| id.as_str()).collect();
         eprintln!(
             "  {} {} tools without conda equivalents: {} (see comment block in output)",
-            "Skipped".if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string()),
+            "Skipped".if_supports_color(Stream::Stderr, |t| t.dimmed().to_string()),
             skipped.len(),
             ids.join(", "),
         );
@@ -88,15 +88,17 @@ fn parse_biocontainers_ref(image_ref: &str) -> Option<(String, String)> {
     Some((name.to_string(), version.to_string()))
 }
 
+type NameVersion = (String, String);
+
 /// Build the conda env YAML plus accounting (which tools were exported, which
 /// were skipped). Returned as a tuple so the caller can write the YAML and
 /// print the stderr summary in one pass.
 fn render_conda_yaml(
     project_name: &str,
     lockfile: &Lockfile,
-) -> (String, Vec<(String, String)>, Vec<(String, String)>) {
-    let mut exported: Vec<(String, String)> = Vec::new();
-    let mut skipped: Vec<(String, String)> = Vec::new();
+) -> (String, Vec<NameVersion>, Vec<NameVersion>) {
+    let mut exported: Vec<NameVersion> = Vec::new();
+    let mut skipped: Vec<NameVersion> = Vec::new();
 
     let mut tools: Vec<_> = lockfile.tools.values().collect();
     tools.sort_by(|a, b| a.tool_id.cmp(&b.tool_id));
@@ -128,12 +130,8 @@ fn render_conda_yaml(
 
     if !skipped.is_empty() {
         out.push('\n');
-        out.push_str(
-            "# Tools that have no known conda/bioconda equivalent. These come from\n",
-        );
-        out.push_str(
-            "# custom OCI images and would need to be installed by hand:\n",
-        );
+        out.push_str("# Tools that have no known conda/bioconda equivalent. These come from\n");
+        out.push_str("# custom OCI images and would need to be installed by hand:\n");
         for (id, image) in &skipped {
             out.push_str(&format!("#   - {} (image: {})\n", id, image));
         }
@@ -174,7 +172,10 @@ mod tests {
             parse_biocontainers_ref("ghcr.io/tejasprabhune/genie2:1.0.0"),
             None
         );
-        assert_eq!(parse_biocontainers_ref("rosettacommons/proteinmpnn:0.1"), None);
+        assert_eq!(
+            parse_biocontainers_ref("rosettacommons/proteinmpnn:0.1"),
+            None
+        );
     }
 
     #[test]

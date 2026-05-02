@@ -399,7 +399,10 @@ mod tests {
         );
         // Must complete quickly (not hang on a credential prompt).
         let result = index.git_refresh();
-        assert!(result.is_err(), "expected clone of nonexistent repo to fail");
+        assert!(
+            result.is_err(),
+            "expected clone of nonexistent repo to fail"
+        );
         let msg = result.unwrap_err().to_string();
         assert!(
             !msg.is_empty(),
@@ -442,7 +445,13 @@ mod tests {
         index.maybe_update_remote().unwrap();
 
         let out = Command::new("git")
-            .args(["-C", repo_path.to_str().unwrap(), "remote", "get-url", "origin"])
+            .args([
+                "-C",
+                repo_path.to_str().unwrap(),
+                "remote",
+                "get-url",
+                "origin",
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

@@ -112,9 +112,8 @@ fn print_human(tool: &ToolManifest) {
         }
     } else {
         eprintln!(
-            "{}",
-            "  warning: no typed I/O declared; may not work with workflow integrations"
-                .if_supports_color(Stream::Stderr, |t| t.yellow().to_string())
+            "  {} no typed I/O declared; experimental tools aren't validated against workflow integrations",
+            "warning:".if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string())
         );
     }
 

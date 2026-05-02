@@ -77,7 +77,7 @@ pub struct ScaffoldResult {
     pub needs_gpu: bool,
     pub inputs: Vec<IoSpec>,
     pub outputs: Vec<IoSpec>,
-    /// Empty string means "no entrypoint" — only valid when `subcommands` is non-empty.
+    /// Empty string means "no entrypoint"; only valid when `subcommands` is non-empty.
     pub entrypoint_command: String,
     pub args_template: Option<String>,
     pub subcommands: HashMap<String, Vec<String>>,
@@ -126,7 +126,11 @@ impl ScaffoldResult {
                         env: Default::default(),
                     })
                 },
-                subcommands: self.subcommands.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                subcommands: self
+                    .subcommands
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
                 cache_paths: vec![],
                 binaries: None,
                 smoke: None,
@@ -305,7 +309,7 @@ const SPDX_LICENSES: &[&str] = &[
 /// multi-line content into one field, embedded `\n`s submit subsequent
 /// prompts and silently scatter their data across fields. This struct holds
 /// pre-filled defaults and is mutated by individual edit actions invoked
-/// from a top-level menu — there is no auto-advance, so cascade can't
+/// from a top-level menu, so there is no auto-advance and cascade can't
 /// happen.
 struct Form {
     name: String,
@@ -667,7 +671,7 @@ fn edit_entrypoint(form: &mut Form) -> anyhow::Result<()> {
         .with_help_message(if form.subcommands.is_empty() {
             "required when no subcommands are declared"
         } else {
-            "optional — subcommands cover this tool"
+            "optional; subcommands cover this tool"
         })
         .prompt()?;
 
@@ -993,7 +997,11 @@ fn prompt_type(initial: &str) -> anyhow::Result<String> {
         return prompt_custom_type(initial);
     }
 
-    let id = picked.split_whitespace().next().unwrap_or("file").to_string();
+    let id = picked
+        .split_whitespace()
+        .next()
+        .unwrap_or("file")
+        .to_string();
     Ok(id)
 }
 
@@ -1009,14 +1017,14 @@ fn prompt_custom_type(initial: &str) -> anyhow::Result<String> {
         if let Some(suggestion) = bv_types::suggest(base) {
             eprintln!(
                 "  {} unknown type '{}', did you mean '{}'?",
-                "hint:".if_supports_color(Stream::Stderr, |t| t.yellow().to_string()),
+                "hint:".if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string()),
                 base,
                 suggestion
             );
         } else {
             eprintln!(
                 "  {} unknown type '{}'",
-                "hint:".if_supports_color(Stream::Stderr, |t| t.yellow().to_string()),
+                "hint:".if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string()),
                 base
             );
         }
@@ -1101,10 +1109,7 @@ mod tests {
     fn does_not_rewrite_flag_with_value() {
         let mut a = argv(&["python", "train.py", "--config=cfg/x.yaml"]);
         rewrite_relative_script_paths(&mut a, "/app");
-        assert_eq!(
-            a,
-            argv(&["python", "/app/train.py", "--config=cfg/x.yaml"])
-        );
+        assert_eq!(a, argv(&["python", "/app/train.py", "--config=cfg/x.yaml"]));
     }
 
     #[test]

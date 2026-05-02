@@ -6,8 +6,7 @@ use bv_builder::{
     layering::PackingStrategy,
     oci,
     popularity::{self, PopularityMap},
-    registry,
-    resolve,
+    registry, resolve,
     spec::BuildSpec,
 };
 use clap::{Parser, Subcommand};
@@ -92,10 +91,7 @@ async fn main() -> Result<()> {
             let resolved = resolve::resolve(&build_spec)
                 .await
                 .context("resolve packages")?;
-            eprintln!(
-                "  Resolved {} packages",
-                resolved.packages.len()
-            );
+            eprintln!("  Resolved {} packages", resolved.packages.len());
             let json = serde_json::to_string_pretty(&resolved)?;
             if let Some(out) = out {
                 std::fs::write(&out, &json)
@@ -106,7 +102,12 @@ async fn main() -> Result<()> {
             }
         }
 
-        Commands::Build { spec, output, max_layers, popularity: pop_path } => {
+        Commands::Build {
+            spec,
+            output,
+            max_layers,
+            popularity: pop_path,
+        } => {
             let build_spec = load_spec(&spec)?;
             eprintln!("  Resolving {} {}...", build_spec.name, build_spec.version);
             let resolved = resolve::resolve(&build_spec)
@@ -125,19 +126,13 @@ async fn main() -> Result<()> {
                 PackingStrategy::OnePerPackage
             };
 
-            eprintln!(
-                "  Building {} layers...",
-                resolved.packages.len()
-            );
+            eprintln!("  Building {} layers...", resolved.packages.len());
             let image = build::build(&resolved, &strategy, pop_map.as_ref())
                 .await
                 .context("build OCI image")?;
 
             let manifest = image.manifest_json()?;
-            let manifest_digest = format!(
-                "sha256:{}",
-                build::sha256_hex(&manifest)
-            );
+            let manifest_digest = format!("sha256:{}", build::sha256_hex(&manifest));
             eprintln!("  Manifest digest: {manifest_digest}");
             eprintln!("  Layers: {}", image.layers.len());
 
@@ -147,10 +142,7 @@ async fn main() -> Result<()> {
             }
 
             let snapshot = registry::build_repodata_snapshot(&resolved)?;
-            let snapshot_digest = format!(
-                "sha256:{}",
-                build::sha256_hex(&snapshot)
-            );
+            let snapshot_digest = format!("sha256:{}", build::sha256_hex(&snapshot));
             eprintln!("  Repodata snapshot digest: {snapshot_digest}");
         }
 
@@ -192,14 +184,13 @@ async fn main() -> Result<()> {
 }
 
 fn load_spec(path: &PathBuf) -> Result<BuildSpec> {
-    let s = std::fs::read_to_string(path)
-        .with_context(|| format!("read spec '{}'", path.display()))?;
+    let s =
+        std::fs::read_to_string(path).with_context(|| format!("read spec '{}'", path.display()))?;
     toml::from_str(&s).with_context(|| format!("parse spec '{}'", path.display()))
 }
 
 fn save_oci_tarball(image: &bv_builder::build::OciImage, path: &PathBuf) -> Result<()> {
-    let f = std::fs::File::create(path)
-        .with_context(|| format!("create {}", path.display()))?;
+    let f = std::fs::File::create(path).with_context(|| format!("create {}", path.display()))?;
     let mut builder = tar::Builder::new(f);
 
     // Write each layer blob at blobs/sha256/<hex>.
@@ -207,7 +198,11 @@ fn save_oci_tarball(image: &bv_builder::build::OciImage, path: &PathBuf) -> Resu
     // packages all produce an identical layer). Write each blob only once.
     let mut written: std::collections::HashSet<String> = std::collections::HashSet::new();
     for layer in &image.layers {
-        let hex = layer.descriptor.digest.strip_prefix("sha256:").unwrap_or(&layer.descriptor.digest);
+        let hex = layer
+            .descriptor
+            .digest
+            .strip_prefix("sha256:")
+            .unwrap_or(&layer.descriptor.digest);
         if !written.insert(hex.to_string()) {
             continue;
         }
@@ -216,11 +211,7 @@ fn save_oci_tarball(image: &bv_builder::build::OciImage, path: &PathBuf) -> Resu
         header.set_size(layer.compressed.len() as u64);
         header.set_mode(0o644);
         header.set_cksum();
-        builder.append_data(
-            &mut header,
-            &entry_path,
-            layer.compressed.as_slice(),
-        )?;
+        builder.append_data(&mut header, &entry_path, layer.compressed.as_slice())?;
     }
 
     // Write config.

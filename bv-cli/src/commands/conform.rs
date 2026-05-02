@@ -19,7 +19,7 @@ enum Outcome {
         duration: std::time::Duration,
         messages: Vec<String>,
     },
-    /// Setup error (image pull, runtime issue) — distinguished from a probe
+    /// Setup error (image pull, runtime issue), distinguished from a probe
     /// failure because it does not indicate the tool itself is broken.
     Error(String),
     Skipped(&'static str),

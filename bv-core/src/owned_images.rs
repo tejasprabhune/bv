@@ -22,7 +22,10 @@ impl OwnedImages {
                 }
             }
         }
-        Self { digests, references }
+        Self {
+            digests,
+            references,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -35,9 +38,10 @@ impl OwnedImages {
 pub fn record(path: &Path, reference: &str, digest: &str) -> io::Result<()> {
     if path.exists() {
         let content = std::fs::read_to_string(path)?;
-        if content.lines().any(|line| {
-            line.splitn(2, '\t').nth(1).unwrap_or("").trim() == digest
-        }) {
+        if content
+            .lines()
+            .any(|line| line.split_once('\t').map(|x| x.1).unwrap_or("").trim() == digest)
+        {
             return Ok(());
         }
     }
@@ -59,7 +63,7 @@ pub fn remove_by_digest(path: &Path, digest: &str) -> io::Result<()> {
     let content = std::fs::read_to_string(path)?;
     let new_content: String = content
         .lines()
-        .filter(|line| line.splitn(2, '\t').nth(1).unwrap_or("").trim() != digest)
+        .filter(|line| line.split_once('\t').map(|x| x.1).unwrap_or("").trim() != digest)
         .map(|line| format!("{line}\n"))
         .collect();
     std::fs::write(path, new_content)

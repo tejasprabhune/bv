@@ -15,7 +15,7 @@ pub fn run(binaries: bool, layers: bool) -> anyhow::Result<()> {
     let bv_lock_path = cwd.join("bv.lock");
 
     if !bv_lock_path.exists() {
-        println!("No bv.lock found. Run `bv add <tool>` to add tools to this project.");
+        println!("no bv.lock found; run `bv add <tool>` to add tools to this project");
         return Ok(());
     }
 
@@ -175,7 +175,10 @@ fn run_layers(lockfile: &bv_core::lockfile::Lockfile) -> anyhow::Result<()> {
             let _ = shared_with;
 
             for layer in &entry.layers {
-                let sharers = digest_to_tools.get(&layer.digest).map(|v| v.len()).unwrap_or(1);
+                let sharers = digest_to_tools
+                    .get(&layer.digest)
+                    .map(|v| v.len())
+                    .unwrap_or(1);
                 if sharers > 1 {
                     shared_bytes += layer.size;
                 } else {
@@ -227,36 +230,36 @@ fn run_layers(lockfile: &bv_core::lockfile::Lockfile) -> anyhow::Result<()> {
                     .conda_package
                     .as_ref()
                     .map(|p| format!("{}=={}", p.name, p.version))
-                    .unwrap_or_else(|| "—".to_string());
+                    .unwrap_or_else(|| "-".to_string());
                 let size_str = format_size(layer.size);
                 let digest_str = short_digest(&layer.digest);
-                let sharers = digest_to_tools.get(&layer.digest).map(|v| v.len()).unwrap_or(1);
+                let sharers = digest_to_tools
+                    .get(&layer.digest)
+                    .map(|v| v.len())
+                    .unwrap_or(1);
                 let shared_note = if sharers > 1 {
-                    format!(
-                        "  ↑shared×{}",
-                        sharers
-                    )
-                    .if_supports_color(Stream::Stdout, |t| t.dimmed().to_string())
-                    .to_string()
+                    format!("  ↑shared×{}", sharers)
+                        .if_supports_color(Stream::Stdout, |t| t.dimmed().to_string())
+                        .to_string()
                 } else {
                     String::new()
                 };
                 println!(
                     "      {}  {}  {}{}",
                     pkg_note,
-                    size_str
-                        .if_supports_color(Stream::Stdout, |t| t.dimmed().to_string()),
-                    digest_str
-                        .if_supports_color(Stream::Stdout, |t| t.dimmed().to_string()),
+                    size_str.if_supports_color(Stream::Stdout, |t| t.dimmed().to_string()),
+                    digest_str.if_supports_color(Stream::Stdout, |t| t.dimmed().to_string()),
                     shared_note,
                 );
             }
         } else {
-            let size_str = entry.image_size_bytes.map(format_size).unwrap_or_else(|| "-".into());
+            let size_str = entry
+                .image_size_bytes
+                .map(format_size)
+                .unwrap_or_else(|| "-".into());
             println!(
                 "    monolithic image  {}",
-                size_str
-                    .if_supports_color(Stream::Stdout, |t| t.dimmed().to_string()),
+                size_str.if_supports_color(Stream::Stdout, |t| t.dimmed().to_string()),
             );
         }
     }
@@ -278,9 +281,7 @@ fn run_layers(lockfile: &bv_core::lockfile::Lockfile) -> anyhow::Result<()> {
         println!();
         println!(
             "  {} unique layers across {} total  ({}% deduplication)",
-            unique_count,
-            total_layers,
-            savings_pct,
+            unique_count, total_layers, savings_pct,
         );
     }
 

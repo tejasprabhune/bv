@@ -179,8 +179,7 @@ async fn fetch_one(
     if let Some(parent) = final_dir.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::rename(&staged_final, &final_dir)
-        .context("failed to move staged dataset to cache")?;
+    std::fs::rename(&staged_final, &final_dir).context("failed to move staged dataset to cache")?;
     guard.committed = true;
 
     eprintln!(
@@ -203,7 +202,7 @@ async fn download_verified(
 ) -> anyhow::Result<()> {
     // NOTE: resume support was removed. The previous implementation reset the
     // hasher on resume so the sha256 check covered only the newly downloaded
-    // bytes, not the full file — silently letting corrupted partial files
+    // bytes, not the full file, silently letting corrupted partial files
     // through. A correct resume design needs to either rehash the existing
     // bytes before continuing, or track per-chunk hashes. Until that exists,
     // every fetch is a fresh download.

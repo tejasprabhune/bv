@@ -203,7 +203,8 @@ impl Lockfile {
     }
 
     pub fn from_toml_str(s: &str) -> Result<Self> {
-        let lockfile: Self = toml::from_str(s).map_err(|e| BvError::LockfileParse(e.to_string()))?;
+        let lockfile: Self =
+            toml::from_str(s).map_err(|e| BvError::LockfileParse(e.to_string()))?;
         if lockfile.version > LOCKFILE_FORMAT_VERSION {
             return Err(BvError::LockfileParse(format!(
                 "bv.lock uses format version {}, but this bv only supports up to version {}.\n\
@@ -353,7 +354,11 @@ mod tests {
 
         let s1 = lock.to_toml_string().unwrap();
         for _ in 0..32 {
-            assert_eq!(s1, lock.to_toml_string().unwrap(), "non-deterministic output");
+            assert_eq!(
+                s1,
+                lock.to_toml_string().unwrap(),
+                "non-deterministic output"
+            );
         }
         // Tools must appear in lexicographic order.
         let alpha = s1.find("\"alpha\"").unwrap();
@@ -367,16 +372,21 @@ mod tests {
     #[test]
     fn spec_kind_legacy_is_skipped_in_serialization() {
         let mut lock = Lockfile::new();
-        lock.tools.insert("tool".into(), entry("tool", "1.0.0", "sha256:abc"));
+        lock.tools
+            .insert("tool".into(), entry("tool", "1.0.0", "sha256:abc"));
         let s = lock.to_toml_string().unwrap();
         // Legacy entries must not emit spec_kind to keep backward compat.
-        assert!(!s.contains("spec_kind"), "legacy entries must not emit spec_kind: {s}");
+        assert!(
+            !s.contains("spec_kind"),
+            "legacy entries must not emit spec_kind: {s}"
+        );
     }
 
     #[test]
     fn factored_entry_round_trips() {
         let mut lock = Lockfile::new();
-        lock.tools.insert("samtools".into(), factored_entry("samtools"));
+        lock.tools
+            .insert("samtools".into(), factored_entry("samtools"));
         let s = lock.to_toml_string().unwrap();
         let back = Lockfile::from_toml_str(&s).unwrap();
         let e = &back.tools["samtools"];
@@ -404,7 +414,10 @@ generated_at = "2024-01-01T00:00:00Z"
 "#;
         let err = Lockfile::from_toml_str(toml).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("format version"), "expected 'format version' in error: {msg}");
+        assert!(
+            msg.contains("format version"),
+            "expected 'format version' in error: {msg}"
+        );
     }
 
     #[test]

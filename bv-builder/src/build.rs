@@ -5,13 +5,13 @@ use anyhow::{Context, Result};
 use bv_core::lockfile::{CondaPackagePin, LayerDescriptor};
 use futures_util::StreamExt as _;
 use oci_client::{
+    Reference,
     client::{Client, ClientConfig, ClientProtocol},
     secrets::RegistryAuth,
-    Reference,
 };
 use sha2::{Digest, Sha256};
 
-use crate::layering::{pack, LayerGroup, PackingStrategy};
+use crate::layering::{LayerGroup, PackingStrategy, pack};
 use crate::popularity::PopularityMap;
 use crate::spec::ResolvedSpec;
 
@@ -48,10 +48,7 @@ impl OciImage {
             let comma = if i + 1 == self.layers.len() { "" } else { "," };
             layers_json.push_str(&format!(
                 "    {{\"mediaType\":\"{}\",\"digest\":\"{}\",\"size\":{}}}{}\n",
-                layer.descriptor.media_type,
-                layer.descriptor.digest,
-                layer.descriptor.size,
-                comma,
+                layer.descriptor.media_type, layer.descriptor.digest, layer.descriptor.size, comma,
             ));
         }
         layers_json.push(']');
@@ -94,15 +91,20 @@ pub async fn build(
         .base
         .as_deref()
         .unwrap_or("docker.io/library/debian:12-slim");
-    let mut layers = fetch_base_layers(base_ref).await
+    let mut layers = fetch_base_layers(base_ref)
+        .await
         .with_context(|| format!("fetch base image '{base_ref}'"))?;
 
     // buffered (not buffer_unordered) preserves layer input order, which is
     // required for deterministic manifest digests across rebuilds.
     // build_group_layer returns None for packages with no extractable files.
+    let concurrency = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .min(8);
     let mut pkg_layers: Vec<OciLayer> = futures_util::stream::iter(groups.iter())
         .map(|g| build_group_layer(&http, g))
-        .buffered(8)
+        .buffered(concurrency)
         .collect::<Vec<_>>()
         .await
         .into_iter()
@@ -162,8 +164,8 @@ async fn fetch_base_layers(base_ref: &str) -> Result<Vec<OciLayer>> {
         .await
         .with_context(|| format!("pull manifest+config for '{base_ref}'"))?;
 
-    let base_config: serde_json::Value = serde_json::from_str(&config_json)
-        .context("parse base image config")?;
+    let base_config: serde_json::Value =
+        serde_json::from_str(&config_json).context("parse base image config")?;
     let base_diff_ids = base_config["rootfs"]["diff_ids"]
         .as_array()
         .cloned()
@@ -211,12 +213,19 @@ async fn fetch_base_layers(base_ref: &str) -> Result<Vec<OciLayer>> {
 /// run in spawn_blocking so they don't starve the async executor's I/O threads.
 /// Returns None if the package(s) contain no extractable files (e.g. pure
 /// Python namespace packages whose pkg- archive is empty after info- is skipped).
-async fn build_group_layer(client: &reqwest::Client, group: &LayerGroup) -> Result<Option<OciLayer>> {
+async fn build_group_layer(
+    client: &reqwest::Client,
+    group: &LayerGroup,
+) -> Result<Option<OciLayer>> {
     // Phase 1: download all packages in this group concurrently.
     let downloaded: Vec<(crate::spec::ResolvedPackage, Vec<u8>)> =
         futures_util::future::try_join_all(
-            group.packages.iter().map(|pkg| download_package(client, pkg))
-        ).await?;
+            group
+                .packages
+                .iter()
+                .map(|pkg| download_package(client, pkg)),
+        )
+        .await?;
 
     let conda_package = if group.packages.len() == 1 {
         let pkg = &group.packages[0];
@@ -242,7 +251,7 @@ async fn build_group_layer(client: &reqwest::Client, group: &LayerGroup) -> Resu
                 .with_context(|| format!("extract {}", pkg.filename))?;
         }
 
-        // Skip packages that extracted no files — only directory scaffolding
+        // Skip packages that extracted no files; only directory scaffolding
         // (opt/conda/) would produce a deterministic empty layer shared by all
         // such packages, causing duplicate digest collisions in the manifest.
         if !prefix_has_files(&prefix) {
@@ -269,7 +278,9 @@ async fn build_group_layer(client: &reqwest::Client, group: &LayerGroup) -> Resu
 }
 
 fn prefix_has_files(dir: &Path) -> bool {
-    let Ok(entries) = std::fs::read_dir(dir) else { return false };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
     for entry in entries.flatten() {
         let Ok(meta) = entry.metadata() else { continue };
         if meta.is_file() {
@@ -310,7 +321,10 @@ async fn download_package(
         if actual != pkg.sha256 {
             anyhow::bail!(
                 "sha256 mismatch for {} ({}): expected {} got {}",
-                pkg.name, pkg.filename, pkg.sha256, actual
+                pkg.name,
+                pkg.filename,
+                pkg.sha256,
+                actual
             );
         }
     }
@@ -423,8 +437,8 @@ fn create_reproducible_layer(dir: &Path) -> Result<(Vec<u8>, String)> {
     let uncompressed_digest = sha256_hex(&uncompressed);
 
     // zstd level 19 for maximum compression density.
-    let compressed = zstd::encode_all(std::io::Cursor::new(&uncompressed), 19)
-        .context("zstd compress layer")?;
+    let compressed =
+        zstd::encode_all(std::io::Cursor::new(&uncompressed), 19).context("zstd compress layer")?;
 
     Ok((compressed, uncompressed_digest))
 }
@@ -490,7 +504,7 @@ fn build_entrypoint_layer(_resolved: &ResolvedSpec) -> Result<OciLayer> {
     {
         let mut f = std::fs::File::create(&script_path)?;
         writeln!(f, "#!/bin/sh")?;
-        writeln!(f, "# Generated by bv-builder — do not edit")?;
+        writeln!(f, "# Generated by bv-builder; do not edit")?;
         writeln!(f, "exec \"$@\"")?;
     }
     // Make executable (755).

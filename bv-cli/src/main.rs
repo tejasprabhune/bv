@@ -107,9 +107,7 @@ async fn main() -> anyhow::Result<()> {
             jobs,
         } => commands::sync::run(*frozen, registry.as_deref(), backend.as_deref(), *jobs).await,
         Commands::Doctor => commands::doctor::run(),
-        Commands::Export { format, output } => {
-            commands::export::run(format, output.as_deref())
-        }
+        Commands::Export { format, output } => commands::export::run(format, output.as_deref()),
         Commands::Data(dc) => commands::data_cmd(dc).await,
         Commands::Cache(cache_cmd) => commands::cache_cmd(cache_cmd),
         Commands::Publish {

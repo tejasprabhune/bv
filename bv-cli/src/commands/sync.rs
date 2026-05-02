@@ -91,7 +91,7 @@ pub async fn run(
             try_restore_manifest(&entry);
             eprintln!(
                 "  {} {} {}",
-                "Present".if_supports_color(Stream::Stderr, |t| t.green().to_string()),
+                "Present".if_supports_color(Stream::Stderr, |t| t.green().bold().to_string()),
                 entry
                     .tool_id
                     .if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
@@ -133,13 +133,21 @@ pub async fn run(
                     .await
                     .map(bv_runtime::ImageDigest)
                     .map_err(|e| bv_core::error::BvError::RuntimeError(format!("{e:#}")));
-                PullOutcome { entry, reporter, result }
+                PullOutcome {
+                    entry,
+                    reporter,
+                    result,
+                }
             });
         } else {
             join_set.spawn_blocking(move || {
                 let _permit = permit;
                 let result = rt.pull(&oci_ref, &reporter);
-                PullOutcome { entry, reporter, result }
+                PullOutcome {
+                    entry,
+                    reporter,
+                    result,
+                }
             });
         }
     }

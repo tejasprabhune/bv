@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use anyhow::Context;
-use serde_json::Value;
 use owo_colors::{OwoColorize, Stream};
+use serde_json::Value;
 
 use bv_core::cache::CacheLayout;
 use bv_core::hardware::DetectedHardware;
@@ -23,7 +23,11 @@ pub fn run() -> anyhow::Result<()> {
     section("Runtime");
     let docker_ok = match DockerRuntime.health_check() {
         Ok(info) => {
-            let server_ver = info.extra.get("server_version").cloned().unwrap_or_default();
+            let server_ver = info
+                .extra
+                .get("server_version")
+                .cloned()
+                .unwrap_or_default();
             let server = if server_ver.is_empty() {
                 String::new()
             } else {
@@ -38,12 +42,9 @@ pub fn run() -> anyhow::Result<()> {
                 .unwrap_or(0);
             if major > 0 && major < 28 {
                 eprintln!(
-                    "    {:KEY_W$} {}",
+                    "    {:KEY_W$} {} Docker 28+ recommended for native GHCR pull (bv sync ghcr.io/...)",
                     "",
-                    format!(
-                        "⚠ Docker 28+ recommended for native GHCR pull (bv sync ghcr.io/...)"
-                    )
-                    .if_supports_color(Stream::Stderr, |t| t.yellow().to_string())
+                    "warning:".if_supports_color(Stream::Stderr, |t| t.yellow().bold().to_string()),
                 );
             }
 
@@ -273,8 +274,8 @@ pub fn run() -> anyhow::Result<()> {
             );
 
             if total_layers > 0 {
-                let dedup_pct = 100u64
-                    .saturating_sub((unique_layer_count as u64 * 100) / total_layers as u64);
+                let dedup_pct =
+                    100u64.saturating_sub((unique_layer_count as u64 * 100) / total_layers as u64);
                 kv(
                     "dedup",
                     &format!(
@@ -286,11 +287,10 @@ pub fn run() -> anyhow::Result<()> {
 
             if legacy_count > 0 && factored_count > 0 {
                 eprintln!(
-                    "    {:KEY_W$} {} tool{} still on legacy images — \
+                    "    {:KEY_W$} {} tool{} still on legacy images; \
                      run `bv add <tool>` to migrate once registry rebuilds are available",
                     "",
-                    legacy_count
-                        .if_supports_color(Stream::Stderr, |t| t.yellow().to_string()),
+                    legacy_count.if_supports_color(Stream::Stderr, |t| t.yellow().to_string()),
                     if legacy_count == 1 { "" } else { "s" }
                 );
             }
@@ -342,7 +342,7 @@ fn check_ghcr_credentials() {
         None => {
             kv_dim(
                 "ghcr.io",
-                "no ~/.docker/config.json — run `docker login ghcr.io` to pull private images",
+                "no ~/.docker/config.json; run `docker login ghcr.io` to pull private images",
             );
             return;
         }
@@ -351,7 +351,7 @@ fn check_ghcr_credentials() {
     if !config_path.exists() {
         kv_dim(
             "ghcr.io",
-            "no ~/.docker/config.json — run `docker login ghcr.io` to pull private images",
+            "no ~/.docker/config.json; run `docker login ghcr.io` to pull private images",
         );
         return;
     }
@@ -365,7 +365,7 @@ fn check_ghcr_credentials() {
     if !configured {
         kv_dim(
             "ghcr.io",
-            "no ghcr.io credentials — run `docker login ghcr.io` to pull private images",
+            "no ghcr.io credentials; run `docker login ghcr.io` to pull private images",
         );
     } else {
         kv_dim("ghcr.io", "credentials configured");
@@ -374,14 +374,18 @@ fn check_ghcr_credentials() {
 
 fn dirs_config_json_path() -> Option<std::path::PathBuf> {
     let home = std::env::var_os("HOME")?;
-    Some(std::path::PathBuf::from(home).join(".docker").join("config.json"))
+    Some(
+        std::path::PathBuf::from(home)
+            .join(".docker")
+            .join("config.json"),
+    )
 }
 
 fn ghcr_configured(json: &Value) -> bool {
-    if let Some(helpers) = json.get("credHelpers").and_then(|v| v.as_object()) {
-        if helpers.contains_key("ghcr.io") {
-            return true;
-        }
+    if let Some(helpers) = json.get("credHelpers").and_then(|v| v.as_object())
+        && helpers.contains_key("ghcr.io")
+    {
+        return true;
     }
     if json
         .get("credsStore")
@@ -392,10 +396,10 @@ fn ghcr_configured(json: &Value) -> bool {
         // A global creds store may hold ghcr.io; treat as configured.
         return true;
     }
-    if let Some(auths) = json.get("auths").and_then(|v| v.as_object()) {
-        if auths.contains_key("ghcr.io") {
-            return true;
-        }
+    if let Some(auths) = json.get("auths").and_then(|v| v.as_object())
+        && auths.contains_key("ghcr.io")
+    {
+        return true;
     }
     false
 }

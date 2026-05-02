@@ -8,7 +8,12 @@ use std::sync::Arc;
 /// disk-bound, so once both are saturated more parallelism just queues. Tune up
 /// on machines with fast network and lots of cores.
 pub fn default_jobs(explicit: Option<usize>) -> usize {
-    explicit.unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8))
+    explicit.unwrap_or_else(|| {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(8)
+    })
 }
 
 use anyhow::Context;
@@ -296,9 +301,13 @@ fn pull_and_make_entry_factored(
     } else {
         format!("{}@{}", factored.image_reference, factored.image_digest)
     };
-    let factored_oci_ref: OciRef = factored_ref_str
-        .parse()
-        .map_err(|e| anyhow::anyhow!("invalid factored image reference '{}': {}", factored_ref_str, e))?;
+    let factored_oci_ref: OciRef = factored_ref_str.parse().map_err(|e| {
+        anyhow::anyhow!(
+            "invalid factored image reference '{}': {}",
+            factored_ref_str,
+            e
+        )
+    })?;
 
     runtime
         .ensure_layers(&layer_specs, reporter)
@@ -306,7 +315,12 @@ fn pull_and_make_entry_factored(
 
     let image_ref: ImageRef = runtime
         .assemble_image(&factored_oci_ref, &layer_specs, reporter)
-        .with_context(|| format!("failed to assemble factored image for '{}'", resolved.tool_id))?;
+        .with_context(|| {
+            format!(
+                "failed to assemble factored image for '{}'",
+                resolved.tool_id
+            )
+        })?;
 
     let size_bytes = runtime
         .inspect(&ImageDigest(image_ref.digest.clone()))
@@ -416,8 +430,11 @@ pub fn lock_diff(old: &Lockfile, new: &Lockfile) -> Vec<String> {
                     lines.push(format!("  ~ {} digest {} -> {}", id, old_d, new_d));
                 } else if matches!(new_entry.spec_kind, SpecKind::FactoredOci) {
                     // Per-layer diff for factored images.
-                    for (i, (old_layer, new_layer)) in
-                        old_entry.layers.iter().zip(new_entry.layers.iter()).enumerate()
+                    for (i, (old_layer, new_layer)) in old_entry
+                        .layers
+                        .iter()
+                        .zip(new_entry.layers.iter())
+                        .enumerate()
                     {
                         if old_layer.digest != new_layer.digest {
                             let pkg_note = new_layer
@@ -425,10 +442,8 @@ pub fn lock_diff(old: &Lockfile, new: &Lockfile) -> Vec<String> {
                                 .as_ref()
                                 .map(|p| format!(" ({}@{})", p.name, p.version))
                                 .unwrap_or_default();
-                            let old_d =
-                                crate::commands::add::short_digest(&old_layer.digest);
-                            let new_d =
-                                crate::commands::add::short_digest(&new_layer.digest);
+                            let old_d = crate::commands::add::short_digest(&old_layer.digest);
+                            let new_d = crate::commands::add::short_digest(&new_layer.digest);
                             lines.push(format!(
                                 "  ~ {} layer[{i}]{pkg_note} digest {} -> {}",
                                 id, old_d, new_d
@@ -455,9 +470,7 @@ pub fn lock_diff(old: &Lockfile, new: &Lockfile) -> Vec<String> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use bv_core::lockfile::{
-        CondaPackagePin, LayerDescriptor, Lockfile, LockfileEntry, SpecKind,
-    };
+    use bv_core::lockfile::{CondaPackagePin, LayerDescriptor, Lockfile, LockfileEntry, SpecKind};
     use chrono::{DateTime, Utc};
 
     use super::*;
@@ -553,7 +566,10 @@ mod tests {
         let old = lock_with(vec![legacy_entry("blast"), legacy_entry("bwa")]);
         let new = lock_with(vec![legacy_entry("blast")]);
         let diff = lock_diff(&old, &new);
-        assert!(diff.iter().any(|l| l.contains("bwa") && l.contains("removed")));
+        assert!(
+            diff.iter()
+                .any(|l| l.contains("bwa") && l.contains("removed"))
+        );
     }
 
     #[test]
@@ -563,7 +579,10 @@ mod tests {
         new_entry.image_digest = "sha256:different".into();
         let new = lock_with(vec![new_entry]);
         let diff = lock_diff(&old, &new);
-        assert!(diff.iter().any(|l| l.contains("blast") && l.contains("digest")));
+        assert!(
+            diff.iter()
+                .any(|l| l.contains("blast") && l.contains("digest"))
+        );
     }
 
     #[test]
@@ -584,18 +603,26 @@ mod tests {
         new_entry.version = "2.0.0".into();
         let new = lock_with(vec![new_entry]);
         let diff = lock_diff(&old, &new);
-        assert!(diff.iter().any(|l| l.contains("blast") && l.contains("version")));
+        assert!(
+            diff.iter()
+                .any(|l| l.contains("blast") && l.contains("version"))
+        );
     }
 
     #[test]
     fn lock_check_exits_nonzero_semantics_with_layers() {
         let old = lock_with(vec![factored_entry("samtools")]);
         let same = old.clone();
-        assert!(old.is_equivalent_to(&same), "identical locks must be equivalent");
+        assert!(
+            old.is_equivalent_to(&same),
+            "identical locks must be equivalent"
+        );
 
         let mut changed = old.clone();
-        changed.tools.get_mut("samtools").unwrap().layers[0].digest =
-            "sha256:tampered".into();
-        assert!(!old.is_equivalent_to(&changed), "layer change must break equivalence");
+        changed.tools.get_mut("samtools").unwrap().layers[0].digest = "sha256:tampered".into();
+        assert!(
+            !old.is_equivalent_to(&changed),
+            "layer change must break equivalence"
+        );
     }
 }

@@ -53,12 +53,7 @@ pub fn run_suite(
             let (footprint_bytes, install_error) = match install_result {
                 Ok((bytes, _)) => (bytes, None),
                 Err(e) => {
-                    eprintln!(
-                        "  install failed [{}/{}]: {}",
-                        path.name(),
-                        fixture.name,
-                        e
-                    );
+                    eprintln!("  install failed [{}/{}]: {}", path.name(), fixture.name, e);
                     (0, Some(e.to_string()))
                 }
             };

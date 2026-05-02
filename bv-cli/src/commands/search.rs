@@ -87,7 +87,7 @@ pub async fn run(
             .collect::<String>();
         let desc = if entry.deprecated {
             let marker = "[deprecated]"
-                .if_supports_color(Stream::Stdout, |t| t.red().to_string())
+                .if_supports_color(Stream::Stdout, |t| t.red().dimmed().to_string())
                 .to_string();
             format!("{marker} {raw_desc}")
         } else {
@@ -207,7 +207,7 @@ fn format_tier(tier: &str) -> String {
             .if_supports_color(Stream::Stdout, |t| t.yellow().to_string())
             .to_string(),
         _ => "experimental"
-            .if_supports_color(Stream::Stdout, |t| t.red().dimmed().to_string())
+            .if_supports_color(Stream::Stdout, |t| t.yellow().to_string())
             .to_string(),
     }
 }

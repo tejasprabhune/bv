@@ -139,7 +139,7 @@ pub enum Commands {
     ///
     /// For factored tools, names the exact layer and its digest.
     /// For legacy (squashed) images, reports that the package provenance
-    /// is not tracked — the package may still be present.
+    /// is not tracked; the package may still be present.
     ///
     /// Example: `bv why openssl`
     Why {

@@ -24,7 +24,8 @@ pub struct LayerIndex {
 impl LayerIndex {
     pub fn load(path: &Path) -> std::io::Result<Self> {
         let s = std::fs::read_to_string(path)?;
-        serde_json::from_str(&s).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        serde_json::from_str(&s)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 
     pub fn load_or_create(path: &Path) -> std::io::Result<Self> {
@@ -42,14 +43,14 @@ impl LayerIndex {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
         std::fs::write(path, json)
     }
 
     /// Record that `layer_digest` is present in the SIF identified by `sif_digest`.
     pub fn record(&mut self, layer_digest: &str, sif_digest: &str) {
-        self.entries.insert(layer_digest.to_string(), sif_digest.to_string());
+        self.entries
+            .insert(layer_digest.to_string(), sif_digest.to_string());
     }
 
     /// Return the SIF digest that contains `layer_digest`, if known.
@@ -136,7 +137,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("layer-index.json");
 
-        let mut idx = LayerIndex { version: 1, entries: HashMap::new() };
+        let mut idx = LayerIndex {
+            version: 1,
+            entries: HashMap::new(),
+        };
         idx.record("sha256:layer1", "sha256:sif1");
         idx.save(&path).unwrap();
 

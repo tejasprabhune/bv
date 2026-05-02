@@ -9,7 +9,7 @@ use bv_runtime::{
     ProgressReporter, RunOutcome, RunSpec, RuntimeInfo,
 };
 
-use crate::blob_cache::{layer_index_path, supports_oci_native, LayerIndex};
+use crate::blob_cache::{LayerIndex, layer_index_path, supports_oci_native};
 use crate::cache::{file_sha256, sif_path_for_digest};
 use crate::gpu::nv_args;
 use crate::image::pull_as_sif;
@@ -260,7 +260,7 @@ impl ContainerRuntime for ApptainerRuntime {
     ///
     /// Consults the layer index at `<sif_dir>/layer-index.json`. If every
     /// layer digest in the list maps to a SIF that still exists on disk,
-    /// the pull can be skipped entirely — this is the primary dedup mechanism
+    /// the pull can be skipped entirely; this is the primary dedup mechanism
     /// for the Apptainer backend when two tools share conda package layers.
     fn ensure_layers(
         &self,
@@ -297,7 +297,7 @@ impl ContainerRuntime for ApptainerRuntime {
     ///
     /// If the Apptainer binary version predates OCI-native mode (< 1.2.0), a
     /// warning is printed but the pull proceeds via the standard `docker://`
-    /// URI — Apptainer will download and convert the whole image regardless of
+    /// URI; Apptainer will download and convert the whole image regardless of
     /// layer structure.
     fn assemble_image(
         &self,
@@ -308,7 +308,7 @@ impl ContainerRuntime for ApptainerRuntime {
         if !layers.is_empty() && !supports_oci_native(&self.bin) {
             progress.update(
                 "Warning: Apptainer < 1.2 does not support OCI-native mode; \
-                 layer-granularity dedup is unavailable — pulling full image",
+                 layer-granularity dedup is unavailable, pulling full image",
                 None,
                 None,
             );

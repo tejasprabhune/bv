@@ -58,9 +58,14 @@ pub async fn pull_native(oci_ref: &OciRef) -> Result<String> {
         .collect();
     layers.sort_by_key(|(d, _, _, _)| order.iter().position(|o| o == d).unwrap_or(usize::MAX));
 
-    let tar_bytes =
-        assemble_oci_layout(manifest_bytes, manifest_digest.clone(), config_bytes, layers, oci_ref)
-            .context("assemble OCI layout tar")?;
+    let tar_bytes = assemble_oci_layout(
+        manifest_bytes,
+        manifest_digest.clone(),
+        config_bytes,
+        layers,
+        oci_ref,
+    )
+    .context("assemble OCI layout tar")?;
 
     load_into_docker(tar_bytes).context("docker load")?;
 
@@ -85,8 +90,8 @@ async fn fetch_bearer_token(oci_ref: &OciRef) -> Result<String> {
 
     let realm = extract_bearer_param(&www_auth, "realm")
         .unwrap_or_else(|| format!("https://{}/token", oci_ref.registry));
-    let service = extract_bearer_param(&www_auth, "service")
-        .unwrap_or_else(|| oci_ref.registry.clone());
+    let service =
+        extract_bearer_param(&www_auth, "service").unwrap_or_else(|| oci_ref.registry.clone());
     let scope = format!("repository:{}:pull", oci_ref.repository);
 
     let mut req = client
@@ -226,7 +231,9 @@ fn assemble_oci_layout(
     let manifest_hex = manifest_digest
         .strip_prefix("sha256:")
         .unwrap_or(&manifest_digest);
-    let config_hex = config_digest.strip_prefix("sha256:").unwrap_or(config_digest);
+    let config_hex = config_digest
+        .strip_prefix("sha256:")
+        .unwrap_or(config_digest);
 
     let mut buf = Vec::new();
     let mut ar = tar::Builder::new(&mut buf);
@@ -300,10 +307,10 @@ fn docker_credentials(registry: &str) -> Option<(String, String)> {
         .and_then(|v| v.as_str())
         .or_else(|| config.get("credsStore").and_then(|v| v.as_str()));
 
-    if let Some(helper) = helper {
-        if let Some(creds) = run_credential_helper(helper, registry) {
-            return Some(creds);
-        }
+    if let Some(helper) = helper
+        && let Some(creds) = run_credential_helper(helper, registry)
+    {
+        return Some(creds);
     }
 
     // Static base64-encoded auth entry.
@@ -342,11 +349,7 @@ fn run_credential_helper(helper: &str, registry: &str) -> Option<(String, String
         .spawn()
         .ok()?;
 
-    child
-        .stdin
-        .take()?
-        .write_all(registry.as_bytes())
-        .ok()?;
+    child.stdin.take()?.write_all(registry.as_bytes()).ok()?;
 
     let output = child.wait_with_output().ok()?;
     if !output.status.success() {
@@ -379,11 +382,7 @@ fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn append_entry<W: Write>(
-    builder: &mut tar::Builder<W>,
-    path: &str,
-    data: &[u8],
-) -> Result<()> {
+fn append_entry<W: Write>(builder: &mut tar::Builder<W>, path: &str, data: &[u8]) -> Result<()> {
     let mut header = tar::Header::new_gnu();
     header.set_size(data.len() as u64);
     header.set_mode(0o644);
@@ -392,4 +391,3 @@ fn append_entry<W: Write>(
         .append_data(&mut header, path, data)
         .with_context(|| format!("append '{path}' to tar"))
 }
-

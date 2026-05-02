@@ -21,7 +21,11 @@ struct GhError {
 
 impl std::fmt::Display for GhError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {} -> {}: {}", self.method, self.url, self.status, self.body)
+        write!(
+            f,
+            "{} {} -> {}: {}",
+            self.method, self.url, self.status, self.body
+        )
     }
 }
 

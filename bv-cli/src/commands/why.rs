@@ -11,7 +11,7 @@ pub fn run(package: &str) -> anyhow::Result<()> {
     let bv_lock_path = cwd.join("bv.lock");
 
     if !bv_lock_path.exists() {
-        println!("No bv.lock found. Run `bv add <tool>` to add tools to this project.");
+        println!("no bv.lock found; run `bv add <tool>` to add tools to this project");
         return Ok(());
     }
 
@@ -58,7 +58,7 @@ pub fn run(package: &str) -> anyhow::Result<()> {
                 // provenance is not tracked in the lockfile. Report the tool
                 // as a possible match so the user knows to check the image.
                 println!(
-                    "  {}  (legacy image — conda package provenance not tracked)  {}",
+                    "  {}  (legacy image, conda package provenance not tracked)  {}",
                     entry
                         .tool_id
                         .if_supports_color(Stream::Stdout, |t| t.bold().to_string()),

@@ -3,6 +3,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use walkdir::WalkDir;
 
 /// Co-occurrence scores for conda packages across the full tool registry.
 ///
@@ -16,7 +17,7 @@ use serde::{Deserialize, Serialize};
 /// Stability guarantee: scores are keyed by package NAME only, not version.
 /// A new version of an already-popular package (e.g. Python 3.11.6 replacing
 /// 3.11.5) inherits the same popularity score and therefore the same layer
-/// priority — which means it still gets a solo layer, just with a different
+/// priority, which means it still gets a solo layer, just with a different
 /// digest. This bounds layer-order churn when popular packages are upgraded.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PopularityMap {
@@ -67,18 +68,18 @@ impl PopularityMap {
 pub fn compute_from_spec_dir(specs_root: &Path) -> anyhow::Result<PopularityMap> {
     let mut map = PopularityMap::new();
 
-    for entry in walkdir(specs_root)? {
-        let path = entry?;
-        if path.extension().and_then(|e| e.to_str()) != Some("toml") {
+    for entry in WalkDir::new(specs_root).into_iter().filter_map(Result::ok) {
+        let path = entry.path();
+        if !entry.file_type().is_file() || path.extension().and_then(|e| e.to_str()) != Some("toml")
+        {
             continue;
         }
 
-        let s = std::fs::read_to_string(&path)
+        let s = std::fs::read_to_string(path)
             .with_context(|| format!("read spec '{}'", path.display()))?;
 
-        // Parse only the `packages` field; skip unrelated TOML.
-        let raw: toml::Value = toml::from_str(&s)
-            .with_context(|| format!("parse spec '{}'", path.display()))?;
+        let raw: toml::Value =
+            toml::from_str(&s).with_context(|| format!("parse spec '{}'", path.display()))?;
 
         let names = extract_package_names(&raw);
         map.record_tool(&names);
@@ -88,8 +89,8 @@ pub fn compute_from_spec_dir(specs_root: &Path) -> anyhow::Result<PopularityMap>
 }
 
 /// Extract the bare package names from a parsed spec TOML value.
-fn extract_package_names(yaml: &toml::Value) -> Vec<String> {
-    let Some(pkgs) = yaml.get("packages").and_then(|v| v.as_array()) else {
+fn extract_package_names(spec: &toml::Value) -> Vec<String> {
+    let Some(pkgs) = spec.get("packages").and_then(|v| v.as_array()) else {
         return vec![];
     };
 
@@ -100,28 +101,6 @@ fn extract_package_names(yaml: &toml::Value) -> Vec<String> {
             s.split_whitespace().next().unwrap_or(s).to_string()
         })
         .collect()
-}
-
-fn walkdir(root: &Path) -> anyhow::Result<impl Iterator<Item = anyhow::Result<std::path::PathBuf>>> {
-    let entries = walkdir_inner(root);
-    Ok(entries.into_iter())
-}
-
-fn walkdir_inner(root: &Path) -> Vec<anyhow::Result<std::path::PathBuf>> {
-    let Ok(read) = std::fs::read_dir(root) else {
-        return vec![];
-    };
-    let mut results = vec![];
-    for entry in read {
-        let Ok(e) = entry else { continue };
-        let path = e.path();
-        if path.is_dir() {
-            results.extend(walkdir_inner(&path));
-        } else {
-            results.push(Ok(path));
-        }
-    }
-    results
 }
 
 #[cfg(test)]
@@ -141,10 +120,9 @@ mod tests {
 
     #[test]
     fn extract_names_strips_version_constraints() {
-        let val: toml::Value = toml::from_str(
-            "packages = [\"samtools ==1.19.2\", \"openssl\", \"bwa >=0.7\"]",
-        )
-        .unwrap();
+        let val: toml::Value =
+            toml::from_str("packages = [\"samtools ==1.19.2\", \"openssl\", \"bwa >=0.7\"]")
+                .unwrap();
         let names = extract_package_names(&val);
         assert_eq!(names, vec!["samtools", "openssl", "bwa"]);
     }

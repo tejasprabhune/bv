@@ -365,7 +365,7 @@ impl DockerRuntime {
             if expected.digest != *actual {
                 return Err(BvError::RuntimeError(format!(
                     "layer digest mismatch at index {i} for '{image_arg}': \
-                     expected {expected_digest} but got {actual} — \
+                     expected {expected_digest} but got {actual}; \
                      possible upstream tampering or mismatched layer ordering",
                     expected_digest = expected.digest,
                 )));

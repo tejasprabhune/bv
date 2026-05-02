@@ -31,7 +31,7 @@ bv exec -- bash -c "blastn -query foo.fa | sort -k11 -n"
 
 On Unix, `bv exec` uses `exec(2)` to replace itself with the child process.
 Signals, exit codes, and process tree all behave as if you called the binary
-directly — no wrapper layer in `ps`.
+directly; no wrapper layer in `ps`.
 
 ### CI usage
 
@@ -87,7 +87,7 @@ bv shell --shell zsh      # explicit shell
 
 The prompt changes to `(bv:<project-name>)` so you always know the environment
 is active. Exiting the subshell (`exit` or Ctrl-D) returns cleanly to your
-original environment — no deactivation step needed.
+original environment; no deactivation step needed.
 
 ```
 $ cd my-project

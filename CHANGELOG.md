@@ -2,6 +2,24 @@
 
 All notable changes to `bv` are documented here. Follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.28] - 2026-05-01
+
+### Changed (CLI output polish)
+
+- Unified the color/weight scheme for status labels: `Skipped` is dimmed everywhere (was yellow-bold in `bv export`), `hint:` is yellow-bold to match `warning:`/`help:`, `experimental` tier renders yellow rather than red, `[deprecated]` is dimmed-red, and `Present`/`ok` are bold-green.
+- `bv doctor` now uses the word `warning:` instead of the `⚠` symbol for the Docker-version notice, matching the rest of the CLI.
+- `show.rs` warning rewritten as a single direct sentence (was two layered `may` hedges).
+- `no bv.lock found` capitalization unified across `list`, `why`, `run`, `sync`.
+- Trailing period removed from the `bv remove` cache hint.
+
+### Internal
+
+- Replaced the hand-rolled directory walker in `bv-builder/popularity.rs` with the `walkdir` crate.
+- `bv-builder/build.rs` no longer hardcodes `buffered(8)`; concurrency comes from `available_parallelism().min(8)`.
+- Renamed the misleading `yaml` parameter in `popularity.rs::extract_package_names` to `spec`.
+- Stripped em-dashes from comments, user-facing strings, README, CHANGELOG, and docs/. The empty-cell glyph in `bv list --layers` is now `-` instead of `—`.
+- Cleaned up clippy `manual_split_once`, `manual_inspect`, `derivable_impls`, `collapsible_if`, `io_other_error`, and `type_complexity` warnings; the workspace is now `cargo clippy -D warnings` clean.
+
 ## [0.1.17] - 2026-04-29
 
 ### Added
@@ -25,7 +43,7 @@ Docker images aren't auto-pruned (would require labeling at pull time); `bv cach
 ### Fixed (correctness / data integrity)
 
 - **Lockfile and bv.toml are now byte-deterministic.** The 0.1.13 BTreeMap fix only covered `Manifest`; `Lockfile.tools`, `Lockfile.binary_index`, `LockfileEntry.reference_data_pins`, `BvToml.data`, and `BvToml.binary_overrides` were still `HashMap`. They reordered between `bv lock` and `bv sync`, polluted `git diff`, and caused spurious `bv lock --check` failures in CI. All five are now `BTreeMap`. Regression test re-serializes 32× and asserts identical bytes plus lexicographic key order.
-- **`bv data fetch` is now atomic.** Files download into a per-fetch staging dir under `cache.tmp_dir()`; `final_dir` is only created via a single `fs::rename` after all downloads succeed and verify. RAII guard removes the staging dir on any error. A killed fetch can no longer leave a partial cache that the next invocation reports as "already cached." Resume-from-partial support has been removed (its sha256 contract was broken — the hasher only saw newly-downloaded bytes against the full-file expected digest).
+- **`bv data fetch` is now atomic.** Files download into a per-fetch staging dir under `cache.tmp_dir()`; `final_dir` is only created via a single `fs::rename` after all downloads succeed and verify. RAII guard removes the staging dir on any error. A killed fetch can no longer leave a partial cache that the next invocation reports as "already cached." Resume-from-partial support has been removed (its sha256 contract was broken: the hasher only saw newly-downloaded bytes against the full-file expected digest).
 - **`bv sync` no longer silently swallows drift errors.** Failures from the drift-check path now surface as a yellow `warning:` line with the underlying error and a hint to run `bv lock`; sync still proceeds.
 - **`bv sync` now respects `[registry]` in `bv.toml`** for the drift-check pass. Private-registry projects were silently drift-checking against the public default.
 - **Apptainer SIF cache hits are re-verified.** `pull` previously returned the requested digest with no check when `<sif_dir>/<digest>.sif` existed. It now re-hashes the file and falls through to a fresh pull on mismatch. `file_sha256` streams 64 KiB chunks via `BufReader` instead of reading the whole multi-GB SIF into memory.
@@ -37,7 +55,7 @@ Docker images aren't auto-pruned (would require labeling at pull time); `bv cach
 ### Fixed (UX)
 
 - **`bv add tool@2` now means `^2`** (caret), matching Cargo. Previously it was exact `=2.0.0`. Bare digits-and-dots versions are treated as caret; explicit operators (`=`, `~`, `^`, `*`, `>=`) are preserved.
-- **`bv sync` pulls in parallel** (cap 3), matching `bv add`. Previously sequential — 50 tools took 50× the time of `bv add`.
+- **`bv sync` pulls in parallel** (cap 3), matching `bv add`. Previously sequential; 50 tools took 50× the time of `bv add`.
 - **`bv lock --check` refreshes the registry index** (TTL-based), so CI no longer misses new versions.
 - **`bv search` shows deprecated tools when `--tier all` is passed.** Previously they were silently filtered out regardless of tier.
 - **Conformance probes now propagate `entrypoint.env`** from the manifest, eliminating false negatives for tools that depend on `PATH`/`LD_LIBRARY_PATH` set via env.
@@ -63,7 +81,7 @@ Docker images aren't auto-pruned (would require labeling at pull time); `bv cach
 ### Internal
 
 - `bv-runtime` exposes `DockerRuntime::pull_verified` (pull + digest-compare). Trait-level wiring for `bv run`/`bv conform` is deferred to a follow-up.
-- `bv remove` documents its bv.toml-then-lock write order as a deliberate choice — if the second write fails, `bv lock` regenerates from the (correct) bv.toml, rather than the reverse.
+- `bv remove` documents its bv.toml-then-lock write order as a deliberate choice: if the second write fails, `bv lock` regenerates from the (correct) bv.toml, rather than the reverse.
 
 ## [0.1.14] - 2026-04-29
 

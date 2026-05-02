@@ -6,8 +6,7 @@ use crate::spec::ResolvedSpec;
 /// alongside the image using the OCI 1.1 referrers spec.
 ///
 /// Media type: `application/vnd.bv.repodata.snapshot.v1+json`
-pub const REPODATA_SNAPSHOT_MEDIA_TYPE: &str =
-    "application/vnd.bv.repodata.snapshot.v1+json";
+pub const REPODATA_SNAPSHOT_MEDIA_TYPE: &str = "application/vnd.bv.repodata.snapshot.v1+json";
 
 /// Produce a JSON snapshot of the channels + package pins used during resolve.
 /// This is pushed as an OCI referrer so that any future `bv-builder resolve`

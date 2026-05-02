@@ -104,7 +104,10 @@ pub struct BuildSpec {
 
 impl BuildSpec {
     pub fn package_specs(&self) -> anyhow::Result<Vec<PackageSpec>> {
-        self.packages.iter().map(|s| PackageSpec::parse(s)).collect()
+        self.packages
+            .iter()
+            .map(|s| PackageSpec::parse(s))
+            .collect()
     }
 }
 

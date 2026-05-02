@@ -201,25 +201,19 @@ fn disk_free_for(target: &Path) -> u64 {
 
     // Resolve target's canonical path so symlinks / relative paths don't
     // throw off the longest-prefix match. Walk up to the nearest existing
-    // ancestor — the cache root may not exist on first run.
+    // ancestor; the cache root may not exist on first run.
     let canonical = ancestor_canonical(target);
 
-    let pick = canonical
-        .as_ref()
-        .and_then(|t| {
-            disks
-                .iter()
-                .filter(|d| t.starts_with(d.mount_point()))
-                .max_by_key(|d| d.mount_point().as_os_str().len())
-        });
+    let pick = canonical.as_ref().and_then(|t| {
+        disks
+            .iter()
+            .filter(|d| t.starts_with(d.mount_point()))
+            .max_by_key(|d| d.mount_point().as_os_str().len())
+    });
 
     let bytes = match pick {
         Some(d) => d.available_space(),
-        None => disks
-            .iter()
-            .map(|d| d.available_space())
-            .max()
-            .unwrap_or(0),
+        None => disks.iter().map(|d| d.available_space()).max().unwrap_or(0),
     };
     bytes / (1024 * 1024)
 }

@@ -153,7 +153,9 @@ fn inventory(root: &Path) -> Vec<(&'static str, String, u64, PathBuf)> {
             let p = e.path();
             if p.is_file() && p.extension().is_some_and(|ext| ext == "sif") {
                 let size = file_size(&p);
-                let name = p.file_name().map(|n| n.to_string_lossy().into_owned())
+                let name = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_default();
                 out.push(("sif", name, size, p));
             }
@@ -177,12 +179,7 @@ fn inventory(root: &Path) -> Vec<(&'static str, String, u64, PathBuf)> {
                     }
                     let version = v.file_name().to_string_lossy().into_owned();
                     let size = dir_size(&vp).unwrap_or(0);
-                    out.push((
-                        "manifest",
-                        format!("{id}@{version}"),
-                        size,
-                        vp,
-                    ));
+                    out.push(("manifest", format!("{id}@{version}"), size, vp));
                 }
             }
         }
@@ -218,12 +215,7 @@ fn inventory(root: &Path) -> Vec<(&'static str, String, u64, PathBuf)> {
                     }
                     let version = v.file_name().to_string_lossy().into_owned();
                     let size = dir_size(&vp).unwrap_or(0);
-                    out.push((
-                        "dataset",
-                        format!("{id}@{version}"),
-                        size,
-                        vp,
-                    ));
+                    out.push(("dataset", format!("{id}@{version}"), size, vp));
                 }
             }
         }
@@ -301,7 +293,7 @@ pub fn run_prune(
         + tmp_plan.items.iter().map(|i| i.size).sum::<u64>();
 
     // Load the persistent ownership record. This is the authoritative list of
-    // every Docker image bv has ever pulled — it survives `bv remove`.
+    // every Docker image bv has ever pulled; it survives `bv remove`.
     let owned_path = cache.owned_images_path();
     let owned = bv_core::owned_images::OwnedImages::load(&owned_path);
 
@@ -331,13 +323,21 @@ pub fn run_prune(
     }
 
     let confirm_msg = match (total_items, docker_candidates.len()) {
-        (0, d) => format!("  Remove {d} Docker image{}? [y/N] ", if d == 1 { "" } else { "s" }),
-        (n, 0) => format!("  Remove {n} cache item{}, free {}? [y/N] ",
-            if n == 1 { "" } else { "s" }, format_size(total_bytes)),
-        (n, d) => format!("  Remove {n} cache item{} and {d} Docker image{}, free {}? [y/N] ",
+        (0, d) => format!(
+            "  Remove {d} Docker image{}? [y/N] ",
+            if d == 1 { "" } else { "s" }
+        ),
+        (n, 0) => format!(
+            "  Remove {n} cache item{}, free {}? [y/N] ",
+            if n == 1 { "" } else { "s" },
+            format_size(total_bytes)
+        ),
+        (n, d) => format!(
+            "  Remove {n} cache item{} and {d} Docker image{}, free {}? [y/N] ",
             if n == 1 { "" } else { "s" },
             if d == 1 { "" } else { "s" },
-            format_size(total_bytes)),
+            format_size(total_bytes)
+        ),
     };
 
     if !yes {
@@ -417,8 +417,7 @@ pub fn plan_prune(
             let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             // Files are written as `<sanitized digest>.sif`; recover digest by
             // matching the sanitized form against all reachable digests.
-            let is_reachable =
-                !all && reachable.digests.iter().any(|d| sanitize_digest(d) == stem);
+            let is_reachable = !all && reachable.digests.iter().any(|d| sanitize_digest(d) == stem);
             if !is_reachable {
                 let size = file_size(&p);
                 plan.items.push(PruneItem {
@@ -604,13 +603,29 @@ pub fn apply_plan(plan: &PrunePlan, tmp_plan: &PrunePlan) -> anyhow::Result<Prun
 
 fn print_summary(s: &PruneSummary) {
     let removed = "Removed".if_supports_color(Stream::Stdout, |t| t.green().bold().to_string());
-    println!("  {removed}   {:>3} SIFs        {}", s.sifs_removed, format_size(s.sif_bytes));
-    println!("  {removed}   {:>3} manifests   {}", s.manifests_removed, format_size(s.manifest_bytes));
+    println!(
+        "  {removed}   {:>3} SIFs        {}",
+        s.sifs_removed,
+        format_size(s.sif_bytes)
+    );
+    println!(
+        "  {removed}   {:>3} manifests   {}",
+        s.manifests_removed,
+        format_size(s.manifest_bytes)
+    );
     if s.indexes_removed > 0 {
-        println!("  {removed}   {:>3} indexes     {}", s.indexes_removed, format_size(s.index_bytes));
+        println!(
+            "  {removed}   {:>3} indexes     {}",
+            s.indexes_removed,
+            format_size(s.index_bytes)
+        );
     }
     if s.tmp_removed > 0 {
-        println!("  {removed}   {:>3} tmp entries {}", s.tmp_removed, format_size(s.tmp_bytes));
+        println!(
+            "  {removed}   {:>3} tmp entries {}",
+            s.tmp_removed,
+            format_size(s.tmp_bytes)
+        );
     }
     println!(
         "  {}  {}",
@@ -691,8 +706,8 @@ struct DockerImage {
 /// Return Docker images that bv pulled and are eligible for removal.
 ///
 /// Ownership is determined by `owned` (the persistent `owned-images.txt` record,
-/// written every time bv pulls an image). Only owned images are ever touched —
-/// this is what prevents bv from removing unrelated Docker images.
+/// written every time bv pulls an image). Only owned images are ever touched,
+/// which is what prevents bv from removing unrelated Docker images.
 ///
 /// `reachable` is the set of images currently referenced by known lockfiles.
 /// When `remove_all` is false, referenced images are exempt from removal.
@@ -732,7 +747,7 @@ fn docker_unreferenced_images(
         }
         let ref_tag = parts[0];
         let digest = parts[1]; // "sha256:..." or "<none>"
-        let id = parts[2];     // "sha256:..." full image ID
+        let id = parts[2]; // "sha256:..." full image ID
 
         // Ownership check: only touch images bv has recorded pulling.
         let is_owned = owned.references.contains(ref_tag)
@@ -756,7 +771,10 @@ fn docker_unreferenced_images(
         } else {
             ref_tag.to_string()
         };
-        candidates.push(DockerImage { display_ref, digest: id.to_string() });
+        candidates.push(DockerImage {
+            display_ref,
+            digest: id.to_string(),
+        });
     }
 
     candidates
@@ -892,8 +910,12 @@ mod tests {
         let drop_digest = "sha256:drop";
 
         // SIF files.
-        let sif_keep = root.join("sif").join(format!("{}.sif", sanitize_digest(keep_digest)));
-        let sif_drop = root.join("sif").join(format!("{}.sif", sanitize_digest(drop_digest)));
+        let sif_keep = root
+            .join("sif")
+            .join(format!("{}.sif", sanitize_digest(keep_digest)));
+        let sif_drop = root
+            .join("sif")
+            .join(format!("{}.sif", sanitize_digest(drop_digest)));
         write_file(&sif_keep, &[1u8; 1024]);
         write_file(&sif_drop, &[2u8; 2048]);
 
@@ -922,17 +944,41 @@ mod tests {
 
         let plan = plan_prune(root, &reach, false, None).unwrap();
 
-        let categories: Vec<_> = plan.items.iter().map(|i| (i.category, i.display.clone())).collect();
+        let categories: Vec<_> = plan
+            .items
+            .iter()
+            .map(|i| (i.category, i.display.clone()))
+            .collect();
         // Reachable SIF and reachable manifest must survive.
-        assert!(!categories.iter().any(|(c, d)| *c == "sif" && d.contains("keep")),
-            "reachable SIF was scheduled for removal: {categories:?}");
-        assert!(!categories.iter().any(|(c, d)| *c == "manifest" && d == "foo@1.0"),
-            "reachable manifest was scheduled for removal: {categories:?}");
+        assert!(
+            !categories
+                .iter()
+                .any(|(c, d)| *c == "sif" && d.contains("keep")),
+            "reachable SIF was scheduled for removal: {categories:?}"
+        );
+        assert!(
+            !categories
+                .iter()
+                .any(|(c, d)| *c == "manifest" && d == "foo@1.0"),
+            "reachable manifest was scheduled for removal: {categories:?}"
+        );
         // Orphans must be present.
-        assert!(categories.iter().any(|(c, d)| *c == "sif" && d.contains("drop")),
-            "orphan SIF was not scheduled for removal: {categories:?}");
-        assert!(categories.iter().any(|(c, d)| *c == "manifest" && d == "foo@0.9"));
-        assert!(categories.iter().any(|(c, d)| *c == "manifest" && d == "bar@2.0"));
+        assert!(
+            categories
+                .iter()
+                .any(|(c, d)| *c == "sif" && d.contains("drop")),
+            "orphan SIF was not scheduled for removal: {categories:?}"
+        );
+        assert!(
+            categories
+                .iter()
+                .any(|(c, d)| *c == "manifest" && d == "foo@0.9")
+        );
+        assert!(
+            categories
+                .iter()
+                .any(|(c, d)| *c == "manifest" && d == "bar@2.0")
+        );
         // Custom (old) index pruned, default (fresh) preserved.
         if filetime::FileTime::from_system_time(old) > filetime::FileTime::from_unix_time(0, 0) {
             // mtime backdating may be a no-op on some filesystems; only assert when it's effective.
@@ -1014,10 +1060,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path();
         let mut lock = Lockfile::new();
-        lock.tools.insert(
-            "foo".into(),
-            make_entry("foo", "1.0", "sha256:abc"),
-        );
+        lock.tools
+            .insert("foo".into(), make_entry("foo", "1.0", "sha256:abc"));
         let s = lock.to_toml_string().unwrap();
         fs::write(cwd.join("bv.lock"), s).unwrap();
         let reach = gather_reachable(Some(cwd));
@@ -1036,11 +1080,7 @@ mod tests {
         write_file(&old, &[0u8; 16]);
         // Backdate `old` by 2 hours.
         let two_hours_ago = SystemTime::now() - Duration::from_secs(2 * 60 * 60);
-        filetime::set_file_mtime(
-            &old,
-            filetime::FileTime::from_system_time(two_hours_ago),
-        )
-        .ok();
+        filetime::set_file_mtime(&old, filetime::FileTime::from_system_time(two_hours_ago)).ok();
 
         let plan = plan_tmp(&tmp_dir);
         let names: Vec<_> = plan.items.iter().map(|i| i.display.clone()).collect();
@@ -1048,4 +1088,3 @@ mod tests {
         assert!(!names.iter().any(|n| n == "young.bin"));
     }
 }
-

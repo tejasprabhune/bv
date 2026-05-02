@@ -257,9 +257,9 @@ mean pLDDT: 94.9
 
 The set of writable cache directories bv binds into the container comes from three layers, in resolution order:
 
-1. **Tool manifest** — `cache_paths` in the registry entry. Tool authors declare what the image needs; users get it for free.
-2. **`[[cache]]` in `bv.toml`** — your overrides for this project. Adds new paths, or points an existing container path at a different host directory.
-3. **Apptainer fallbacks** — bv auto-binds `/cache` and `/root/.cache` for tools whose manifest hasn't declared cache paths yet. Skipped on docker (its writable upper layer already covers this).
+1. **Tool manifest**: `cache_paths` in the registry entry. Tool authors declare what the image needs; users get it for free.
+2. **`[[cache]]` in `bv.toml`**: your overrides for this project. Adds new paths, or points an existing container path at a different host directory.
+3. **Apptainer fallbacks**: bv auto-binds `/cache` and `/root/.cache` for tools whose manifest hasn't declared cache paths yet. Skipped on docker (its writable upper layer already covers this).
 
 Default host path is `~/.cache/bv/<tool>/<slug>`. Override with:
 

@@ -252,11 +252,7 @@ pub trait ContainerRuntime {
     ///
     /// The default implementation is a no-op (runtimes that don't support
     /// factored pulls fall back to `pull`).
-    fn ensure_layers(
-        &self,
-        _layers: &[LayerSpec],
-        _progress: &dyn ProgressReporter,
-    ) -> Result<()> {
+    fn ensure_layers(&self, _layers: &[LayerSpec], _progress: &dyn ProgressReporter) -> Result<()> {
         Ok(())
     }
 

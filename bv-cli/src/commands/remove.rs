@@ -43,9 +43,9 @@ pub fn run(tool: &str) -> anyhow::Result<()> {
         "Removed".if_supports_color(Stream::Stderr, |t| t.green().bold().to_string()),
         tool.if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
     );
-    eprintln!("  The container image is still in your local Docker cache.");
+    eprintln!("  the container image is still in your local Docker cache");
     eprintln!(
-        "  Run `{}` to remove unused images.",
+        "  run `{}` to remove unused images",
         "bv cache prune".if_supports_color(Stream::Stderr, |t| t.bold().to_string()),
     );
 

@@ -8,18 +8,13 @@ use crate::spec::ResolvedPackage;
 /// Layer order: most-stable (lowest in dependency graph) at index 0,
 /// most-volatile (entrypoint) at the top. Docker pulls layers in manifest
 /// order so stable-first minimises re-downloads across tool upgrades.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum PackingStrategy {
     /// Each package gets its own layer (default for small tool sets).
+    #[default]
     OnePerPackage,
     /// Popularity-based packing when `max_layers` is exceeded.
     PopularityBased { max_layers: usize },
-}
-
-impl Default for PackingStrategy {
-    fn default() -> Self {
-        Self::OnePerPackage
-    }
 }
 
 /// A group of packages that will be combined into a single OCI layer.
@@ -206,7 +201,13 @@ mod tests {
         pop.record_tool(&["openssl".into(), "bz2".into()]);
 
         // 3 solo slots: max_layers=5, 5-2=3 solo, 1 long-tail
-        let pkgs = vec![pkg("openssl"), pkg("zlib"), pkg("bz2"), pkg("rare1"), pkg("rare2")];
+        let pkgs = vec![
+            pkg("openssl"),
+            pkg("zlib"),
+            pkg("bz2"),
+            pkg("rare1"),
+            pkg("rare2"),
+        ];
         let groups = pack(
             &pkgs,
             &PackingStrategy::PopularityBased { max_layers: 5 },
@@ -238,8 +239,14 @@ mod tests {
             Some(&pop),
         );
 
-        let names1: Vec<_> = groups1.iter().map(|g| g.packages[0].name.as_str()).collect();
-        let names2: Vec<_> = groups2.iter().map(|g| g.packages[0].name.as_str()).collect();
+        let names1: Vec<_> = groups1
+            .iter()
+            .map(|g| g.packages[0].name.as_str())
+            .collect();
+        let names2: Vec<_> = groups2
+            .iter()
+            .map(|g| g.packages[0].name.as_str())
+            .collect();
         assert_eq!(names1, names2, "packing must be deterministic");
         // Tie-broken by name: aa < bb < cc
         assert_eq!(names1, vec!["aa", "bb", "cc"]);
@@ -247,14 +254,20 @@ mod tests {
 
     /// M5.4: Synthesize 100 fake tool specs with overlapping deps.
     /// Assert that for any two specs sharing a popular package, that package
-    /// lands in a solo LayerGroup in both specs — guaranteeing identical
+    /// lands in a solo LayerGroup in both specs, guaranteeing identical
     /// layer digests when the same package+version+build is built reproducibly.
     #[test]
     fn shared_popular_packages_get_solo_layers_across_tools() {
         const NUM_TOOLS: usize = 100;
         const MAX_LAYERS: usize = 64;
         const SHARED_PKGS: &[&str] = &[
-            "openssl", "zlib", "libgcc", "libstdcxx", "ncurses", "xz", "bzip2",
+            "openssl",
+            "zlib",
+            "libgcc",
+            "libstdcxx",
+            "ncurses",
+            "xz",
+            "bzip2",
         ];
         const UNIQUE_SUFFIX: &str = "tool-specific-pkg";
 
@@ -291,15 +304,17 @@ mod tests {
 
             let groups = pack(
                 &pkgs,
-                &PackingStrategy::PopularityBased { max_layers: MAX_LAYERS },
+                &PackingStrategy::PopularityBased {
+                    max_layers: MAX_LAYERS,
+                },
                 Some(&pop),
             );
 
             // Every shared package must appear in a solo group (one package per group).
             for shared in SHARED_PKGS {
-                let solo = groups.iter().any(|g| {
-                    g.packages.len() == 1 && g.packages[0].name == *shared
-                });
+                let solo = groups
+                    .iter()
+                    .any(|g| g.packages.len() == 1 && g.packages[0].name == *shared);
                 assert!(
                     solo,
                     "shared package '{}' must get its own layer in tool-{tool_idx}",

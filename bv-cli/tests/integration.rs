@@ -28,16 +28,12 @@ fn registry_clone_does_not_hang_on_credential_prompt() {
 
     // Use a timeout: if git hangs waiting for a credential prompt the child
     // process will not exit and this test will time out (fail), not deadlock.
-    let mut child = bv(
-        &["search", "samtools"],
-        dir.path(),
-        cache.path(),
-    )
-    .stdin(std::process::Stdio::null())
-    .stdout(std::process::Stdio::piped())
-    .stderr(std::process::Stdio::piped())
-    .spawn()
-    .expect("failed to spawn bv search");
+    let mut child = bv(&["search", "samtools"], dir.path(), cache.path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn bv search");
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
@@ -48,7 +44,7 @@ fn registry_clone_does_not_hang_on_credential_prompt() {
             }
             None if std::time::Instant::now() > deadline => {
                 child.kill().ok();
-                panic!("bv search timed out — likely blocked on a git credential prompt");
+                panic!("bv search timed out (likely blocked on a git credential prompt)");
             }
             None => std::thread::sleep(std::time::Duration::from_millis(200)),
         }
