@@ -86,8 +86,14 @@ async fn main() -> anyhow::Result<()> {
             backend,
             jobs,
         } => {
-            commands::update::run(tools, registry.as_deref(), *ignore_hardware, backend.as_deref(), *jobs)
-                .await
+            commands::update::run(
+                tools,
+                registry.as_deref(),
+                *ignore_hardware,
+                backend.as_deref(),
+                *jobs,
+            )
+            .await
         }
         Commands::Remove { tool } => commands::remove::run(tool),
         Commands::Run {

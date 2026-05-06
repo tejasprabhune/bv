@@ -2,6 +2,15 @@
 
 All notable changes to `bv` are documented here. Follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.29] - 2026-05-06
+
+### Added
+
+- **`bv update`** updates installed tools to the latest version available in the registry, pins the resolved version in `bv.lock`, and leaves `bv.toml` constraints untouched.
+- **`bv show --format json`** now includes `entrypoint` (command + optional `args_template`) and `binaries` (list of exposed binary names); omitted when absent. Human format also shows a `Binaries:` line.
+- **`docs/types.md`** -- vocabulary reference for all bv-types (IO types, cardinality, hardware fields).
+- **`docs/manifest-schema.md`** -- documented `entrypoint` and `binaries` fields.
+
 ## [0.1.28] - 2026-05-01
 
 ### Changed (CLI output polish)
