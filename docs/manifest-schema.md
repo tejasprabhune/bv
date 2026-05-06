@@ -38,7 +38,12 @@
         "cardinality": "one",
         "description": "Tabular BLAST alignment results (outfmt 6)"
       }
-    ]
+    ],
+    "entrypoint": {
+      "command": "blastn",
+      "args_template": "-query {query} -db {db} -out {output} -num_threads {cpu_cores}"
+    },
+    "binaries": ["blastn"]
   }
 }
 ```
@@ -54,17 +59,28 @@
 
 ### `tool`
 
-| Field | Type | Always present |
-|---|---|---|
-| `id` | string | yes |
-| `version` | string | yes |
-| `description` | string | no |
-| `homepage` | string | no |
-| `license` | string | no |
-| `image` | object | yes |
-| `inputs` | array | yes (empty if untyped) |
-| `outputs` | array | yes (empty if untyped) |
+| Field | Type | Always present | Description |
+|---|---|---|---|
+| `id` | string | yes | |
+| `version` | string | yes | |
+| `description` | string | no | |
+| `homepage` | string | no | |
+| `license` | string | no | |
+| `image` | object | yes | |
+| `inputs` | array | yes (empty if untyped) | |
+| `outputs` | array | yes (empty if untyped) | |
+| `entrypoint` | object | no | Default invocation. Omitted for subcommand-only tools. See "Entrypoint" below. |
+| `binaries` | array | no | Binary names the tool exposes on PATH. Omitted when empty. |
 | `subcommands` | object | no | Map of subcommand name -> argv prefix (array of strings). Omitted when empty. See "Subcommands" below. |
+
+### Entrypoint
+
+When present, `entrypoint` describes the default command run by `bv run <tool>`.
+
+| Field | Type | Always present | Description |
+|---|---|---|---|
+| `command` | string | yes | Executable name or path inside the container |
+| `args_template` | string | no | Argument template; `{name}` placeholders map to input/output port names |
 
 ### I/O entry (inputs and outputs use the same shape)
 

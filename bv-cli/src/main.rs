@@ -79,6 +79,16 @@ async fn main() -> anyhow::Result<()> {
             registry,
             limit,
         } => commands::search::run(query, tier.as_deref(), registry.as_deref(), *limit).await,
+        Commands::Update {
+            tools,
+            registry,
+            ignore_hardware,
+            backend,
+            jobs,
+        } => {
+            commands::update::run(tools, registry.as_deref(), *ignore_hardware, backend.as_deref(), *jobs)
+                .await
+        }
         Commands::Remove { tool } => commands::remove::run(tool),
         Commands::Run {
             tool,

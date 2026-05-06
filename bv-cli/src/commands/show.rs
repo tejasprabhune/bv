@@ -125,6 +125,12 @@ fn print_human(tool: &ToolManifest) {
         }
     }
 
+    let bins = tool.effective_binaries();
+    if !bins.is_empty() {
+        println!();
+        println!("Binaries:  {}", bins.join(", "));
+    }
+
     if !tool.subcommands.is_empty() {
         println!();
         println!("Subcommands:");
@@ -168,6 +174,10 @@ struct JsonTool<'a> {
     image: JsonImage<'a>,
     inputs: Vec<JsonIo<'a>>,
     outputs: Vec<JsonIo<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entrypoint: Option<JsonEntrypoint<'a>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    binaries: Vec<&'a str>,
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     subcommands: std::collections::BTreeMap<&'a str, &'a Vec<String>>,
 }
@@ -176,6 +186,13 @@ struct JsonTool<'a> {
 struct JsonImage<'a> {
     backend: &'a str,
     reference: &'a str,
+}
+
+#[derive(Serialize)]
+struct JsonEntrypoint<'a> {
+    command: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    args_template: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -218,6 +235,11 @@ fn print_json(manifest: &Manifest) -> anyhow::Result<()> {
             },
             inputs: t.inputs.iter().map(to_json_io).collect(),
             outputs: t.outputs.iter().map(to_json_io).collect(),
+            entrypoint: t.entrypoint.as_ref().map(|ep| JsonEntrypoint {
+                command: &ep.command,
+                args_template: ep.args_template.as_deref(),
+            }),
+            binaries: t.effective_binaries(),
             subcommands: t.subcommands.iter().map(|(k, v)| (k.as_str(), v)).collect(),
         },
     };
@@ -378,6 +400,11 @@ args_template = "-query {query} -db {db} -out {output} -num_threads {cpu_cores}"
                 },
                 inputs: t.inputs.iter().map(to_json_io).collect(),
                 outputs: t.outputs.iter().map(to_json_io).collect(),
+                entrypoint: t.entrypoint.as_ref().map(|ep| JsonEntrypoint {
+                    command: &ep.command,
+                    args_template: ep.args_template.as_deref(),
+                }),
+                binaries: t.effective_binaries(),
                 subcommands: t.subcommands.iter().map(|(k, v)| (k.as_str(), v)).collect(),
             },
         };

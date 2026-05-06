@@ -35,6 +35,13 @@ expression: json
         "cardinality": "one",
         "description": "Tabular BLAST results"
       }
+    ],
+    "entrypoint": {
+      "command": "blastn",
+      "args_template": "-query {query} -db {db} -out {output} -num_threads {cpu_cores}"
+    },
+    "binaries": [
+      "blastn"
     ]
   }
 }

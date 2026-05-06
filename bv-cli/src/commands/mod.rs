@@ -13,6 +13,7 @@ pub mod search;
 pub mod shell;
 pub mod show;
 pub mod sync;
+pub mod update;
 pub mod why;
 
 use crate::cli::{CacheCommands, DataCommands};

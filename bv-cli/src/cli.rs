@@ -95,6 +95,30 @@ pub enum Commands {
         limit: usize,
     },
 
+    /// Update installed tools to their latest version in the registry.
+    ///
+    /// With no arguments, updates all tools declared in bv.toml.
+    /// Specify tool ids to update only those tools.
+    ///
+    ///   bv update               # update all tools
+    ///   bv update colabfold     # update one tool
+    Update {
+        /// Tool identifiers to update. Omit to update all tools in bv.toml.
+        tools: Vec<String>,
+        /// Registry URL or local path. Overrides BV_REGISTRY env var and bv.toml.
+        #[arg(long, env = "BV_REGISTRY")]
+        registry: Option<String>,
+        /// Skip hardware requirement checks.
+        #[arg(long)]
+        ignore_hardware: bool,
+        /// Container backend: `docker`, `apptainer`, or `auto` (default).
+        #[arg(long, env = "BV_BACKEND")]
+        backend: Option<String>,
+        /// Maximum concurrent image pulls. Defaults to min(8, num_cpus).
+        #[arg(long, env = "BV_JOBS")]
+        jobs: Option<usize>,
+    },
+
     /// Remove a tool from bv.toml and bv.lock.
     Remove {
         /// Tool identifier.
