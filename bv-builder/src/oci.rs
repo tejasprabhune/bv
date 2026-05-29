@@ -127,6 +127,9 @@ async fn push_inner(image: &OciImage, reference: &str, auth: RegistryAuth) -> Re
             "localhost".into(),
             "127.0.0.1".into(),
         ]),
+        // GHCR rate-limits aggressive parallel uploads. Push blobs one at a
+        // time so the connection stays stable across large images (100+ layers).
+        max_concurrent_upload: 1,
         ..Default::default()
     };
 
@@ -138,7 +141,7 @@ async fn push_inner(image: &OciImage, reference: &str, auth: RegistryAuth) -> Re
     for attempt in 0..8u32 {
         if attempt > 0 {
             eprintln!(
-                "  rate limited, retrying in {:?} (attempt {}/8)...",
+                "  transient error, retrying in {:?} (attempt {}/8)...",
                 delay,
                 attempt + 1
             );
@@ -172,7 +175,7 @@ async fn push_inner(image: &OciImage, reference: &str, auth: RegistryAuth) -> Re
                     .to_string();
                 return Ok(digest);
             }
-            Err(e) if is_rate_limited(&e) => {
+            Err(e) if is_retriable(&e) => {
                 last_err = Some(anyhow::anyhow!("{e}"));
             }
             Err(e) => {
@@ -187,9 +190,17 @@ async fn push_inner(image: &OciImage, reference: &str, auth: RegistryAuth) -> Re
     })
 }
 
-fn is_rate_limited(e: &oci_client::errors::OciDistributionError) -> bool {
-    let s = format!("{e:?}");
-    s.contains("429") || s.contains("TOOMANYREQUESTS")
+fn is_retriable(e: &oci_client::errors::OciDistributionError) -> bool {
+    // Check both Debug and Display — reqwest errors appear in Display only.
+    // Lowercase so "ConnectionReset" / "Connection reset by peer" both match.
+    let combined = format!("{e:?} {e}").to_lowercase();
+    combined.contains("429")
+        || combined.contains("toomanyrequests")
+        || combined.contains("error sending request")
+        || combined.contains("error decoding response body")
+        || combined.contains("connection reset")
+        || combined.contains("connection closed")
+        || combined.contains("timed out")
 }
 
 /// Fetch an image manifest from a registry and verify its digest matches
