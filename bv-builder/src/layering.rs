@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn one_per_package_gives_n_groups() {
         let pkgs = vec![pkg("openssl"), pkg("zlib"), pkg("samtools")];
-        let groups = pack(&pkgs,  &PackingStrategy::OnePerPackage,  None, None);
+        let groups = pack(&pkgs, &PackingStrategy::OnePerPackage, None, None);
         assert_eq!(groups.len(), 3);
         assert_eq!(groups[0].packages[0].name, "openssl");
     }
@@ -473,8 +473,8 @@ mod tests {
         // All three fit in solo layers (64 - 2 = 62 slots).
         assert_eq!(groups.len(), 3);
         assert_eq!(groups[0].packages[0].name, "openssl"); // count=2
-        assert_eq!(groups[1].packages[0].name, "zlib");    // count=1
-        assert_eq!(groups[2].packages[0].name, "rare");    // count=0
+        assert_eq!(groups[1].packages[0].name, "zlib"); // count=1
+        assert_eq!(groups[2].packages[0].name, "rare"); // count=0
     }
 
     #[test]

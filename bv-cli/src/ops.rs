@@ -197,14 +197,12 @@ pub fn pull_and_make_entry(
             // (only image_reference + image_digest are set in the TOML), so
             // we must query the registry directly for the actual layer count.
             let factored_result = match probe_factored_layer_count(factored) {
-                Ok(layer_count) if layer_count > 127 => {
-                    Err(anyhow::anyhow!(bv_core::error::BvError::LayerLimitExceeded(
-                        format!(
-                            "factored image has {layer_count} layers, which exceeds Docker's \
+                Ok(layer_count) if layer_count > 127 => Err(anyhow::anyhow!(
+                    bv_core::error::BvError::LayerLimitExceeded(format!(
+                        "factored image has {layer_count} layers, which exceeds Docker's \
                              127-layer limit\n  bv will use the base image reference instead"
-                        )
-                    )))
-                }
+                    ))
+                )),
                 // If the probe fails (e.g. network error), fall through to the
                 // normal factored pull rather than blocking on a flaky check.
                 _ => pull_and_make_entry_factored(resolved, factored, reporter, cache, runtime),
@@ -428,9 +426,7 @@ fn pull_and_make_entry_factored(
 ///
 /// Builds the digest-pinned OCI reference the same way the factored pull does,
 /// then asks the registry for just the image manifest (no blob downloads).
-fn probe_factored_layer_count(
-    factored: &bv_core::manifest::FactoredSpec,
-) -> anyhow::Result<usize> {
+fn probe_factored_layer_count(factored: &bv_core::manifest::FactoredSpec) -> anyhow::Result<usize> {
     let factored_ref_str = if factored.image_reference.contains('@') {
         factored.image_reference.clone()
     } else {

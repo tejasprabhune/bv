@@ -639,10 +639,7 @@ pub fn catalog_updates_from_image(image: &OciImage) -> Vec<(&str, &str, &str, &s
 
 /// Collect all conda packages included in a resolved spec's layer list,
 /// grouped by whether they already appear in the catalog.
-pub fn catalog_coverage(
-    packages: &[ResolvedPackage],
-    catalog: &LayerCatalog,
-) -> (usize, usize) {
+pub fn catalog_coverage(packages: &[ResolvedPackage], catalog: &LayerCatalog) -> (usize, usize) {
     let hits = packages
         .iter()
         .filter(|p| catalog.contains(&p.name, &p.version, &p.build))

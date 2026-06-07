@@ -177,7 +177,11 @@ async fn main() -> Result<()> {
                     c.record(name, version, build_str, digest);
                 }
                 c.save(path).context("update layer catalog")?;
-                eprintln!("  Catalog: added {} new entries -> {}", added, path.display());
+                eprintln!(
+                    "  Catalog: added {} new entries -> {}",
+                    added,
+                    path.display()
+                );
             }
 
             let manifest = image.manifest_json()?;
@@ -195,7 +199,11 @@ async fn main() -> Result<()> {
             eprintln!("  Repodata snapshot digest: {snapshot_digest}");
         }
 
-        Commands::Push { image, reference, token } => {
+        Commands::Push {
+            image,
+            reference,
+            token,
+        } => {
             eprintln!("  Loading tarball from {}...", image.display());
             let loaded = oci::load_from_tarball(&image).context("load OCI tarball")?;
             eprintln!("  Pushing {} layers to {reference}...", loaded.layers.len());

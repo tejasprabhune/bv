@@ -2,12 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use bv_builder::{
-    build,
-    catalog::LayerCatalog,
-    layering::PackingStrategy,
-    oci,
-    resolve,
-    spec::BuildSpec,
+    build, catalog::LayerCatalog, layering::PackingStrategy, oci, resolve, spec::BuildSpec,
 };
 use owo_colors::{OwoColorize, Stream};
 
@@ -77,7 +72,11 @@ pub async fn run(opts: CondaPublishOpts) -> anyhow::Result<()> {
     let resolved = resolve::resolve(&build_spec)
         .await
         .context("resolve conda packages")?;
-    eprintln!("  {} {} packages", "Resolved".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string()), resolved.packages.len());
+    eprintln!(
+        "  {} {} packages",
+        "Resolved".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string()),
+        resolved.packages.len()
+    );
 
     let (catalog, catalog_json_original) = if opts.no_push || opts.no_pr {
         (LayerCatalog::new(), String::new())
@@ -112,7 +111,8 @@ pub async fn run(opts: CondaPublishOpts) -> anyhow::Result<()> {
         "  {} {} layers  (manifest {})",
         "Built".if_supports_color(Stream::Stderr, |t| t.cyan().bold().to_string()),
         image.layers.len(),
-        &image.manifest_json()
+        &image
+            .manifest_json()
             .map(|b| format!("sha256:{}", build::sha256_hex(&b)))
             .unwrap_or_else(|_| "?".into())[..20]
     );
@@ -149,7 +149,9 @@ pub async fn run(opts: CondaPublishOpts) -> anyhow::Result<()> {
         for (name, version, build_str, layer_digest) in updates {
             updated_catalog.record(name, version, build_str, layer_digest);
         }
-        let json = updated_catalog.to_json().context("serialize updated catalog")?;
+        let json = updated_catalog
+            .to_json()
+            .context("serialize updated catalog")?;
         if json != catalog_json_original {
             eprintln!(
                 "  {} {} new entries to catalog",
@@ -162,11 +164,8 @@ pub async fn run(opts: CondaPublishOpts) -> anyhow::Result<()> {
         String::new()
     };
 
-    let layers: Vec<bv_core::lockfile::LayerDescriptor> = image
-        .layers
-        .iter()
-        .map(|l| l.descriptor.clone())
-        .collect();
+    let layers: Vec<bv_core::lockfile::LayerDescriptor> =
+        image.layers.iter().map(|l| l.descriptor.clone()).collect();
 
     let manifest_toml = scaffold_result
         .to_conda_manifest_toml(&image_ref, &digest, &layers)
@@ -231,9 +230,8 @@ async fn fetch_catalog(
         .build()
         .context("build HTTP client")?;
 
-    let url = format!(
-        "https://raw.githubusercontent.com/{registry_repo}/main/{CATALOG_REGISTRY_PATH}"
-    );
+    let url =
+        format!("https://raw.githubusercontent.com/{registry_repo}/main/{CATALOG_REGISTRY_PATH}");
 
     let resp = client
         .get(&url)
@@ -247,10 +245,7 @@ async fn fetch_catalog(
     }
 
     if !resp.status().is_success() {
-        anyhow::bail!(
-            "failed to fetch catalog from {url}: HTTP {}",
-            resp.status()
-        );
+        anyhow::bail!("failed to fetch catalog from {url}: HTTP {}", resp.status());
     }
 
     let json = resp.text().await.context("read catalog response")?;

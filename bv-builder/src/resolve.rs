@@ -96,8 +96,7 @@ pub async fn resolve(spec: &BuildSpec) -> Result<ResolvedSpec> {
 /// Virtual/meta packages that don't have downloadable artifacts.
 // _openmp_mutex is excluded: though it ships no files, its libgomp dep must propagate.
 fn is_virtual_package(name: &str) -> bool {
-    name.starts_with("__")
-        || matches!(name, "_libgcc_mutex" | "ca-certificates" | "certifi")
+    name.starts_with("__") || matches!(name, "_libgcc_mutex" | "ca-certificates" | "certifi")
 }
 
 /// Parse a conda dependency string (e.g. "libgcc-ng >=12.3.0,<13.0a0") into a PackageSpec.
