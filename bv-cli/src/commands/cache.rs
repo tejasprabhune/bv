@@ -485,7 +485,7 @@ pub fn plan_prune(
 
         for (id, mut versions) in per_tool {
             // Newest first.
-            versions.sort_by(|a, b| b.2.cmp(&a.2));
+            versions.sort_by_key(|v| std::cmp::Reverse(v.2));
             let keep_count = keep_recent.unwrap_or(0);
             let mut kept_extra: usize = 0;
             for (version, vp, _mtime, size) in versions {
