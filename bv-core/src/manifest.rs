@@ -261,6 +261,8 @@ pub struct IoSpec {
     /// How many values this port accepts.
     #[serde(default)]
     pub cardinality: Cardinality,
+    #[serde(default = "default_required")]
+    pub required: bool,
     /// Absolute path inside the container where this value is mounted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mount: Option<PathBuf>,
@@ -268,6 +270,10 @@ pub struct IoSpec {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
+}
+
+fn default_required() -> bool {
+    false
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
