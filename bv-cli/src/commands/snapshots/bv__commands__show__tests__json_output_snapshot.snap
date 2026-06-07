@@ -19,12 +19,14 @@ expression: json
         "name": "query",
         "type": "fasta",
         "cardinality": "one",
+        "required": false,
         "description": "Query sequences in FASTA format"
       },
       {
         "name": "db",
         "type": "blast_db",
         "cardinality": "one",
+        "required": false,
         "description": "BLAST database directory"
       }
     ],
@@ -33,6 +35,7 @@ expression: json
         "name": "output",
         "type": "blast_tab",
         "cardinality": "one",
+        "required": false,
         "description": "Tabular BLAST results"
       }
     ],
