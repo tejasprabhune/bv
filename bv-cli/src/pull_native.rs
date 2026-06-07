@@ -3,6 +3,36 @@ use std::io::Write;
 use anyhow::{Context, Result};
 use bv_runtime::OciRef;
 
+/// Fetch the image manifest from the registry and return how many layers it
+/// declares, without downloading any blobs. Used as a pre-flight before
+/// committing to a full pull.
+///
+/// The layer count that matters for Docker's storage-driver depth limit lives
+/// in the OCI image manifest on the registry, not in the bv tool manifest's
+/// `[tool.factored]` block (that `layers` array is empty for all registry
+/// entries today).
+pub async fn fetch_layer_count(oci_ref: &OciRef) -> Result<usize> {
+    let token = fetch_bearer_token(oci_ref).await?;
+    let client = build_client();
+    let (manifest_bytes, _digest) = fetch_manifest(&client, oci_ref, &token).await?;
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&manifest_bytes).context("parse manifest JSON")?;
+    let layers = manifest["layers"]
+        .as_array()
+        .context("manifest.layers missing")?;
+    Ok(layers.len())
+}
+
+/// Blocking wrapper around [`fetch_layer_count`] for use from synchronous
+/// contexts. Spins up a current-thread runtime for the single request.
+pub fn fetch_layer_count_blocking(oci_ref: &OciRef) -> Result<usize> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("build current-thread runtime for layer-count probe")?;
+    rt.block_on(fetch_layer_count(oci_ref))
+}
+
 /// Pull an OCI image directly from the registry via HTTPS, bypassing the
 /// Docker Desktop VM. Downloads layer blobs concurrently, assembles an OCI
 /// Image Layout tar in memory, and loads it via `docker load`. Returns the

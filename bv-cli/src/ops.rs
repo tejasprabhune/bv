@@ -188,21 +188,26 @@ pub fn pull_and_make_entry(
 ) -> anyhow::Result<LockfileEntry> {
     let entry = if let Some(factored) = &resolved.manifest.tool.factored {
         if !factored.image_digest.is_empty() {
-            // Pre-flight: check the manifest layer count before attempting the
-            // pull. Some container runtimes (e.g. gvisor on Modal) SIGKILL
-            // docker pull when layers exceed their limit, producing no stderr
-            // output and therefore no LayerLimitExceeded signal from
-            // classify_pull_error. Checking upfront avoids that silent crash.
-            let layer_count = factored.layers.len();
-            let factored_result = if layer_count > 127 {
-                Err(anyhow::anyhow!(bv_core::error::BvError::LayerLimitExceeded(
-                    format!(
-                        "factored image has {layer_count} layers, which exceeds Docker's \
-                         127-layer limit\n  bv will use the base image reference instead"
-                    )
-                )))
-            } else {
-                pull_and_make_entry_factored(resolved, factored, reporter, cache, runtime)
+            // Pre-flight: fetch the real layer count from the registry OCI
+            // manifest before attempting the pull. Some container runtimes
+            // (e.g. gvisor on Modal) SIGKILL docker pull when layers exceed
+            // their limit, producing no stderr and therefore no
+            // LayerLimitExceeded signal from classify_pull_error.
+            // Note: factored.layers is always empty in registry manifests
+            // (only image_reference + image_digest are set in the TOML), so
+            // we must query the registry directly for the actual layer count.
+            let factored_result = match probe_factored_layer_count(factored) {
+                Ok(layer_count) if layer_count > 127 => {
+                    Err(anyhow::anyhow!(bv_core::error::BvError::LayerLimitExceeded(
+                        format!(
+                            "factored image has {layer_count} layers, which exceeds Docker's \
+                             127-layer limit\n  bv will use the base image reference instead"
+                        )
+                    )))
+                }
+                // If the probe fails (e.g. network error), fall through to the
+                // normal factored pull rather than blocking on a flaky check.
+                _ => pull_and_make_entry_factored(resolved, factored, reporter, cache, runtime),
             };
             match factored_result {
                 Ok(e) => e,
@@ -417,6 +422,24 @@ fn pull_and_make_entry_factored(
         reference_data_pins: BTreeMap::new(),
         binaries,
     })
+}
+
+/// Read the real layer count for a factored image from its registry manifest.
+///
+/// Builds the digest-pinned OCI reference the same way the factored pull does,
+/// then asks the registry for just the image manifest (no blob downloads).
+fn probe_factored_layer_count(
+    factored: &bv_core::manifest::FactoredSpec,
+) -> anyhow::Result<usize> {
+    let factored_ref_str = if factored.image_reference.contains('@') {
+        factored.image_reference.clone()
+    } else {
+        format!("{}@{}", factored.image_reference, factored.image_digest)
+    };
+    let oci_ref: OciRef = factored_ref_str.parse().map_err(|e| {
+        anyhow::anyhow!("invalid factored image reference '{factored_ref_str}': {e}")
+    })?;
+    crate::pull_native::fetch_layer_count_blocking(&oci_ref)
 }
 
 fn is_layer_limit_error(e: &anyhow::Error) -> bool {
